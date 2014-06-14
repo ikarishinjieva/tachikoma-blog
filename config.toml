@@ -7,4 +7,4 @@ title = "Tachikoma blog"
 	tag = "tags"
 
 [permalinks]
-	post= "tachikoma-blog/:title/"
+	post= "tachikoma-blog/post/:filename"
