@@ -5,3 +5,6 @@ title = "Tachikoma blog"
 [indexes]
 	category = "categories"
 	tag = "tags"
+
+[permalinks]
+	post= "tachikoma-blog/:title/"
