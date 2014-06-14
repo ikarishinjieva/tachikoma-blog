@@ -1,0 +1,7 @@
+baseurl = "http://ikarishinjieva.github.io/tachikoma-blog"
+languageCode = "zh-cn"
+title = "Tachikoma blog"
+
+[indexes]
+	category = "categories"
+	tag = "tags"
