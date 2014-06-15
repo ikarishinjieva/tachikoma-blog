@@ -22,4 +22,9 @@
 
   <!-- RSS -->
   <link href="{{ .RSSlink }}" rel="alternate" type="application/rss+xml" title="{{ .Site.Title }}" />
+
+  <!-- Highlight.js -->
+  <link rel="stylesheet" href="{{ .Site.BaseUrl }}/css/highlight-rainbow.css">
+  <script src="{{ .Site.BaseUrl }}/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
 </head>
