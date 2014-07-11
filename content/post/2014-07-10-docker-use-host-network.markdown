@@ -55,10 +55,16 @@ Error: either "dev" is duplicate, or "master" is a garbage.
 ##### 4. 从原设备`eth0`上卸下原有ip, 启用`bridge0`
 
 ```
-> ip addr del 192.168.1.99/24 dev bridge0
+> ip addr del 192.168.1.99/24 dev eth0
 > ifconfig bridge0 up
 ```
 
-##### 5. 搞定. 
+##### 5. 启动docker
+
+```
+/usr/bin/docker -d -b=bridge0
+```
+
+##### 6. 搞定. 
 
 如果遇到container无法`ping`到其他ip, 记得检查host上的gateway
