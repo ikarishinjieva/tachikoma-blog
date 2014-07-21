@@ -67,4 +67,4 @@ Error: either "dev" is duplicate, or "master" is a garbage.
 
 ##### 6. 搞定. 
 
-如果遇到container无法`ping`到其他ip, 记得检查host上的gateway
+如果遇到container无法`ping`到其他ip, 记得检查host上的gateway, 以及host上的防火墙
