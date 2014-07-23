@@ -5,12 +5,12 @@ date = 2014-07-23T22:20:00Z
 tags = [ "mysql", "group commit"]
 +++
 
-###翻译之前
+# 翻译之前
 
 Kristian Nielsen写了Fixing MySQL group commit系列共四篇blog ([第一篇](http://kristiannielsen.livejournal.com/12254.html), [第二篇](http://kristiannielsen.livejournal.com/12408.html), [第三篇](http://kristiannielsen.livejournal.com/12553.html), [第四篇](http://kristiannielsen.livejournal.com/12810.html)). 
 读完后对group commit的理解我觉得很有帮助, 因此想翻译前三篇, 借此再整理一下自己的思路; 第四篇偏重具体实现, 故不包括
 
-#第一篇
+# 第一篇
 
 这个系列三篇文章描述了MySQL/MariaDB是如何支持group commit这个特性的. Group commit是对数据库性能一次重大的提升. 向持久存储里写数据的开销较大, group commit能减轻这种开销对数据库整体性能的影响.
 
@@ -21,7 +21,7 @@ Kristian Nielsen写了Fixing MySQL group commit系列共四篇blog ([第一篇](
 蓝色和黄色的上升线是group commit开启时的TPS, 其对性能改善的程度随着并发事务数的上升而提升
 
 
-##持久化和group commit
+## 持久化和group commit
 
 在一个传统事务系统中, 当事务提交成功时, 我们认为事务已经被_持久化(Durable)_了. Durable就是ACID中的D, 其含义是某事务提交成功后, 即使系统在其提交成功后任意时刻崩溃(比如电源故障, 内核崩盘, 服务器软件悲剧, 还有很多很多), 系统重启且从崩溃恢复后, 该事务的状态仍是提交成功的.
 
@@ -36,7 +36,7 @@ Kristian Nielsen写了Fixing MySQL group commit系列共四篇blog ([第一篇](
 如果每个提交都进行`fsync()`, 受限于`fsync()`的成本, 数据库TPS被限制在每秒150个事务(HDD). 
 Group commit能改善这个状况. 我们可以用一个`fsync()`来合并多个事务同时发生的刷盘请求. 处理多个事务的刷盘请求, 较之处理一个事务, `fsync()`的成本差别不大, 所以如性能图表所示, 合并刷盘请求能大幅提高性能.
 
-##Group commit in Mysql/MariaDB
+## Group commit in Mysql/MariaDB
 
 Mysql在使用InnoDB存储引擎时可以提供完整的ACID. 对于InnoDB, 开启配置`innodb_flush_log_at_trx_commit=1`时可保证持久性. MariaDB使用XtraDB的情况与之类似.
 
@@ -72,7 +72,7 @@ MySQL/MariaDB通过XA/(binlog和存储引擎的)二段提交来保证持久化. 
 
 第二篇将深入探讨为什么开启binlog时group commit的代码会失效. 第三篇将讨论怎样修复这个bug.
 
-#第二篇
+# 第二篇
 
 InnoDB/XtraDB是支持group commit的. group commit在`innobase_commit()`函数中分为两部分完成: 第一部分称为"快"部分, 是在内存中准备要提交的信息
 
@@ -116,7 +116,7 @@ Sergei Golubchik在2010 MySQL conference期间对此做了一些研究. 结论�
 
 第二篇的结论是: 如果抛弃了`prepare_commit_mutex`, MySQL可以迎来有group commit的美好时代. 第三篇将更深入进行讨论.
 
-#第三篇
+# 第三篇
 
 这一篇将讨论如何修复group commit的问题. 如第二篇所述, 我们可以去掉`prepare_commit_mutex`, 然后再为binlog加上独立的group commit功能, 这个问题就可以解决.
 
