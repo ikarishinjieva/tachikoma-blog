@@ -173,16 +173,16 @@ COMMIT event
 
 <h3 id="toc_3">为什么会抛出错误</h3>
 
-<p>检查一下<code>ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</code>的抛出处
-<code>
-gtid_pre_statement_checks {
+<p>检查一下<code>ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</code>的抛出处</p>
+
+<pre><code>gtid_pre_statement_checks {
      …
      if (UNDEFINED_GROUP == gtid_next-&gt;type) {
           my_error(ER_GTID_NEXT_TYPE_UNDEFINED_GROUP, MYF(0), buf);
      }
      …
 }
-</code></p>
+</code></pre>
 
 <p>那设置<code>gtid_next-&gt;type = UNDEFINED_GROUP</code>的地方在</p>
 
@@ -264,10 +264,15 @@ gtid_pre_statement_checks {
 <p>所谓有&rdquo;货&rdquo;要提交, mysql源码的注释为:</p>
 
 <blockquote>
-<p>We commit the transaction if:
-   - We are not in a transaction and committing a statement, or
-   - We are in a transaction and a full transaction is committed.
-   Otherwise, we accumulate the changes.</p>
+<p>We commit the transaction if:</p>
+
+<ul>
+<li><p>We are not in a transaction and committing a statement, or</p></li>
+
+<li><p>We are in a transaction and a full transaction is committed.</p></li>
+</ul>
+
+<p>Otherwise, we accumulate the changes.</p>
 </blockquote>
 
 <p>那么:

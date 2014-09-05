@@ -117,16 +117,16 @@ COMMIT event
 
 &lt;h3 id=&#34;toc_3&#34;&gt;为什么会抛出错误&lt;/h3&gt;
 
-&lt;p&gt;检查一下&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的抛出处
-&lt;code&gt;
-gtid_pre_statement_checks {
+&lt;p&gt;检查一下&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的抛出处&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;gtid_pre_statement_checks {
      …
      if (UNDEFINED_GROUP == gtid_next-&amp;gt;type) {
           my_error(ER_GTID_NEXT_TYPE_UNDEFINED_GROUP, MYF(0), buf);
      }
      …
 }
-&lt;/code&gt;&lt;/p&gt;
+&lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;那设置&lt;code&gt;gtid_next-&amp;gt;type = UNDEFINED_GROUP&lt;/code&gt;的地方在&lt;/p&gt;
 
@@ -208,10 +208,15 @@ gtid_pre_statement_checks {
 &lt;p&gt;所谓有&amp;rdquo;货&amp;rdquo;要提交, mysql源码的注释为:&lt;/p&gt;
 
 &lt;blockquote&gt;
-&lt;p&gt;We commit the transaction if:
-   - We are not in a transaction and committing a statement, or
-   - We are in a transaction and a full transaction is committed.
-   Otherwise, we accumulate the changes.&lt;/p&gt;
+&lt;p&gt;We commit the transaction if:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;We are not in a transaction and committing a statement, or&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;We are in a transaction and a full transaction is committed.&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Otherwise, we accumulate the changes.&lt;/p&gt;
 &lt;/blockquote&gt;
 
 &lt;p&gt;那么:

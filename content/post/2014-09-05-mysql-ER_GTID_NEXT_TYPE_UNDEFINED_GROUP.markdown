@@ -102,6 +102,7 @@ COMMIT event
 ### 为什么会抛出错误
 
 检查一下`ER_GTID_NEXT_TYPE_UNDEFINED_GROUP`的抛出处
+
 ```
 gtid_pre_statement_checks {
      …
@@ -193,8 +194,11 @@ set_undefined() {
 所谓有"货"要提交, mysql源码的注释为:
 
 >    We commit the transaction if:
+>
 >    - We are not in a transaction and committing a statement, or
+>
 >    - We are in a transaction and a full transaction is committed.
+>
 >    Otherwise, we accumulate the changes.
 
 那么:
