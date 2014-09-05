@@ -7,7 +7,234 @@
     <language>zh-cn</language>
     
     
-    <updated>Thu, 28 Aug 2014 20:18:00 UTC</updated>
+    <updated>Fri, 05 Sep 2014 22:00:00 UTC</updated>
+    
+    <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</link>
+      <pubDate>Fri, 05 Sep 2014 22:00:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</guid>
+      <description>
+
+&lt;p&gt;最近Mysql slave发生了一次下面的错误:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;因为没留下现场, 分析起来很困难. 从mysql bug库中刨出了一个类似的&lt;a href=&#34;http://bugs.mysql.com/bug.php?id=68525&#34;&gt;bug 68525&lt;/a&gt;, 分析了这个bug的成因.&lt;/p&gt;
+
+&lt;p&gt;BTW, 不幸的是分析完后觉得与之前碰到场景不一致.&lt;/p&gt;
+
+&lt;p&gt;下面将介绍这个bug的成因.&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_0&#34;&gt;bug描述&lt;/h3&gt;
+
+&lt;p&gt;重现这个bug需满足下面的条件:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;relay-log-info-repository = TABLE&lt;/li&gt;
+&lt;li&gt;gtid-mode = on&lt;/li&gt;
+&lt;li&gt;binlog-format = ROW&lt;/li&gt;
+&lt;li&gt;max_binlog_size 足够小, 我设置为 4096&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;用下面的脚本在master上创建&lt;strong&gt;myisam&lt;/strong&gt;表并灌数据, slave上就会出现&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;CREATE TABLE `item` (`id` int(11) NOT NULL AUTO_INCREMENT,`item` varchar(10), PRIMARY KEY (`id`)) ENGINE=myisam DEFAULT CHARSET=utf8 COLLATE=utf8_czech_ci;
+
+insert into item(item) values (&#39;test1&#39;) ;
+
+insert into item(item) values (&#39;test2&#39;) ;
+
+insert into item(item) values (&#39;test3&#39;) ;
+
+insert into item(item) values (&#39;test4&#39;) ;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+#最后一组数据是1024行
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;普遍的解决方法是在slave上&lt;code&gt;stop slave; start slave&lt;/code&gt;就可以从这个错误中恢复, 但注意此时master和slave上数据是&lt;strong&gt;不一致&lt;/strong&gt;的&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_1&#34;&gt;row event的拆分&lt;/h3&gt;
+
+&lt;p&gt;进行更进一步的描述前, 先需要理解row event的拆分:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;在master端, 当row event的大小超过&lt;code&gt;binlog-row-event-max-size&lt;/code&gt;时, 会使用一个新的row event.  &lt;code&gt;binlog-row-event-max-size&lt;/code&gt;默认大小为8k, 即如果更新1000行, 会被拆成若干个8k的row event&lt;/li&gt;
+&lt;li&gt;在master端, 无论&lt;code&gt;max_binlog_size&lt;/code&gt;多小, 一次提交的row event都会存放在同一个binlog中, 即如果更新1000行, 所有的row event都会放在同一个binlog中 (即使更新的是myisam表)&lt;/li&gt;
+&lt;li&gt;在slave端, relay log以event为单位接受master发送的binlog, 如果当前relay log大小超过&lt;code&gt;max_relay_log_size&lt;/code&gt;, relay log进行轮换. 即之前的1000行更新在slave端会被&lt;strong&gt;拆分&lt;/strong&gt;到若干个relay log中. 本例中&lt;code&gt;max_relay_log_size = 0&lt;/code&gt;, relay log的大小限制同&lt;code&gt;max_binlog_size&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_2&#34;&gt;错误发生在何处&lt;/h3&gt;
+
+&lt;p&gt;理解了row event会被拆分到多个relay log中, 那从relay log的角度:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;===
+# relay-log.000001
+GTID_desc event
+BEGIN event
+row_event 0
+row_event 1
+...
+row_event x
+ROTATE event
+===
+# relay-log.000002
+Format_description_event
+Previous-GTIDs
+...
+# &amp;lt;-- 错误发生在此处!
+row_event x+1
+...
+COMMIT event
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;错误发生在新的relay-log执行第x+1个row_event之前, 发生错误时可以看到slave的&lt;code&gt;executed_gtid&lt;/code&gt;已经按照GTID_desc event的描述更新了, 这意味着两件事情:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可能在relay-log轮换时发生了commit, 导致还未执行完的更新(只执行到了row_event x)将其gtid刷到了&lt;code&gt;executed_gtid&lt;/code&gt;中,  这可能是bug发生的原因.&lt;/li&gt;
+&lt;li&gt;如果此时执行&lt;code&gt;stop slave; start slave&lt;/code&gt;, 那么整个更新将被跳过, &lt;strong&gt;这就是为什么可以从错误中恢复&lt;/strong&gt;. 但&lt;code&gt;row_event x&lt;/code&gt;以后的更新将丢失, &lt;strong&gt;造成数据不一致&lt;/strong&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_3&#34;&gt;为什么会抛出错误&lt;/h3&gt;
+
+&lt;p&gt;检查一下&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的抛出处
+&lt;code&gt;
+gtid_pre_statement_checks {
+     …
+     if (UNDEFINED_GROUP == gtid_next-&amp;gt;type) {
+          my_error(ER_GTID_NEXT_TYPE_UNDEFINED_GROUP, MYF(0), buf);
+     }
+     …
+}
+&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;那设置&lt;code&gt;gtid_next-&amp;gt;type = UNDEFINED_GROUP&lt;/code&gt;的地方在&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set_undefined() {
+     if (type == GTID_GROUP)
+          type= UNDEFINED_GROUP;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;set_undefined&lt;/code&gt;被很多逻辑分支调用, 都是Mysql确定当前Gtid被使用完毕或者需要抛弃时被调用, 比如commit和rollback时.&lt;/p&gt;
+
+&lt;p&gt;那如之前的猜想, 在relay log 轮换时发生了commit, 就会&lt;code&gt;set_undefined&lt;/code&gt;, &lt;code&gt;row_event x+1&lt;/code&gt;执行前的检查就会抛出&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;用断点追踪一下也应正了这个猜想:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#0  Gtid_specification::set_undefined (this=0x7f8e940011b8) at /opt/mysql-src-5.6.19/sql/rpl_gtid.h:2413
+#1  0x0000000000a0a9ed in Gtid_state::update_on_flush (this=0x2c14310, thd=0x7f8e940008c0)
+    at /opt/mysql-src-5.6.19/sql/rpl_gtid_state.cc:170
+#2  0x0000000000a4788d in MYSQL_BIN_LOG::write_cache (this=0x1826c00, thd=0x7f8e940008c0,
+    cache_data=0x7f8e94035b40) at /opt/mysql-src-5.6.19/sql/binlog.cc:5799
+#3  0x0000000000a3b803 in binlog_cache_data::flush (this=0x7f8e94035b40, thd=0x7f8e940008c0,
+    bytes_written=0x7f8ed5d9f0b0, wrote_xid=0x7f8ed5d9f107) at /opt/mysql-src-5.6.19/sql/binlog.cc:1227
+#4  0x0000000000a5088d in binlog_cache_mngr::flush (this=0x7f8e94035b40, thd=0x7f8e940008c0,
+    bytes_written=0x7f8ed5d9f108, wrote_xid=0x7f8ed5d9f107) at /opt/mysql-src-5.6.19/sql/binlog.cc:774
+#5  0x0000000000a48f46 in MYSQL_BIN_LOG::flush_thread_caches (this=0x1826c00, thd=0x7f8e940008c0)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6368
+#6  0x0000000000a49195 in MYSQL_BIN_LOG::process_flush_stage_queue (this=0x1826c00,
+    total_bytes_var=0x7f8ed5d9f280, rotate_var=0x7f8ed5d9f27f, out_queue_var=0x7f8ed5d9f270)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6424
+#7  0x0000000000a49eb7 in MYSQL_BIN_LOG::ordered_commit (this=0x1826c00, thd=0x7f8e940008c0, all=false,
+    skip_commit=false) at /opt/mysql-src-5.6.19/sql/binlog.cc:6841
+#8  0x0000000000a48e6a in MYSQL_BIN_LOG::commit (this=0x1826c00, thd=0x7f8e940008c0, all=false)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6335
+#9  0x0000000000644bdb in ha_commit_trans (thd=0x7f8e940008c0, all=false, ignore_global_read_lock=true)
+    at /opt/mysql-src-5.6.19/sql/handler.cc:1436
+#10 0x0000000000a9214d in Rpl_info_table_access::close_table (this=0x32c1b20, thd=0x7f8e940008c0,
+    table=0x3371800, backup=0x7f8ed5da0520, error=false) at /opt/mysql-src-5.6.19/sql/rpl_info_table_access.cc:163
+#11 0x0000000000a9075f in Rpl_info_table::do_flush_info (this=0x32c1ba0, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_info_table.cc:238
+#12 0x0000000000a7def4 in Rpl_info_handler::flush_info (this=0x32c1ba0, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_info_handler.h:92
+#13 0x0000000000a842c9 in Relay_log_info::flush_info (this=0x3355240, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_rli.cc:2028
+#14 0x0000000000a42871 in MYSQL_BIN_LOG::purge_first_log (this=0x3355980, rli=0x3355240, included=false)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:3966
+#15 0x0000000000a7805d in next_event (rli=0x3355240) at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:7362
+#16 0x0000000000a6dd60 in exec_relay_log_event (thd=0x7f8e940008c0, rli=0x3355240)
+    at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:3814
+#17 0x0000000000a73646 in handle_slave_sql (arg=0x2c197b0) at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:5708
+#18 0x0000000000e1e0b1 in pfs_spawn_thread (arg=0x7f8eb0050080)
+    at /opt/mysql-src-5.6.19/storage/perfschema/pfs.cc:1860
+#19 0x00007f8f03ef89d1 in start_thread () from /lib64/libpthread.so.0
+#20 0x00007f8f02e62b5d in clone () from /lib64/libc.so.6
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到:
+* relay log进行轮换时&lt;code&gt;purge_first_log&lt;/code&gt;
+* Rpl_info_table需要进行&lt;code&gt;flush_info&lt;/code&gt;
+* 导致了进行完整提交(&lt;code&gt;ordered_commit&lt;/code&gt;), 此时会&lt;code&gt;set_undefined&lt;/code&gt;&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_4&#34;&gt;为什么relay log轮换会触发完整提交&lt;/h3&gt;
+
+&lt;p&gt;下面代码来自&lt;code&gt;MYSQL_BIN_LOG::commit&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;  if (stuff_logged)
+  {
+    if (ordered_commit(thd, all))
+      DBUG_RETURN(RESULT_INCONSISTENT);
+  }
+  else
+  {
+    if (ha_commit_low(thd, all))
+      DBUG_RETURN(RESULT_INCONSISTENT);
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;提交&lt;code&gt;Rpl_info_table&lt;/code&gt;时, 如果真的有&amp;rdquo;货&amp;rdquo;要提交(&lt;code&gt;stuff_logged&lt;/code&gt;), 就会用&lt;code&gt;ordered_commit&lt;/code&gt;做完整提交(包括&lt;code&gt;set_undefined&lt;/code&gt;); 否则, 用&lt;code&gt;ha_commit_low&lt;/code&gt;仅做innodb层的提交.&lt;/p&gt;
+
+&lt;p&gt;所谓有&amp;rdquo;货&amp;rdquo;要提交, mysql源码的注释为:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;We commit the transaction if:
+   - We are not in a transaction and committing a statement, or
+   - We are in a transaction and a full transaction is committed.
+   Otherwise, we accumulate the changes.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;那么:
+* 当前这个bug满足第一种情况
+* 第二种情况解释了为什么使用innodb表时不会出现这个bug.&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_5&#34;&gt;最后&lt;/h3&gt;
+
+&lt;p&gt;最后验证一下&lt;code&gt;relay-log-info-repository=FILE&lt;/code&gt;时不会触发这个bug的.&lt;/p&gt;
+
+&lt;p&gt;复盘一下:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;同一个commit的多个row event会被拆分到不同的relay log中.&lt;/li&gt;
+&lt;li&gt;使用&lt;code&gt;relay-log-info-repository=TABLE&lt;/code&gt;时, 轮换relay log会触发commit.&lt;/li&gt;
+&lt;li&gt;由于是myisam表, 则触发了一个完整commit (&lt;code&gt;ordered_commit&lt;/code&gt;). 会重置gtid状态为undefined.&lt;/li&gt;
+&lt;li&gt;下一个relay log执行时, 发现gtid状态异常报错.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;stop slave; start slave&lt;/code&gt;后, 由于gtid已经更新, 整个commit会被跳过, 造成数据丢失.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;简单地说就是&lt;code&gt;relay-log-info-repository=TABLE&lt;/code&gt;的交易性和myisam的非交易性在轮换relay log时的冲突.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Mysql 5.6的crash-safe replication中与relay-log.info相关的部分</title>
@@ -2496,133 +2723,6 @@ thread = 140016942216960}, m_psi = 0x0}
 &lt;p&gt;因此可能的解决方案是IO thread持有读写锁，进行commit时转为持有读锁。show slave status只使用读锁。&lt;/p&gt;
 
 &lt;p&gt;只是臆测下解决方法，待&lt;a href=&#34;http://bugs.mysql.com/bug.php?id=70307&#34;&gt;bug #70307&lt;/a&gt;修掉时再学习。&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Mysql 5.6.12 master上flush logs在slave上产生两个relay-log</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-10-22-mysql-flush-logs-make-two-relay-log-file</link>
-      <pubDate>Tue, 22 Oct 2013 21:42:00 UTC</pubDate>
-      
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-10-22-mysql-flush-logs-make-two-relay-log-file</guid>
-      <description>
-
-&lt;h2 id=&#34;toc_0&#34;&gt;现象&lt;/h2&gt;
-
-&lt;p&gt;一个碰巧观察到的有趣的现象：mysql 5.6.12 在master上flush logs，在slave上会观察到两个新的relay-log file&lt;/p&gt;
-
-&lt;p&gt;举例：&lt;/p&gt;
-
-&lt;p&gt;slave-relay-bin.000092&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt; FD event
- Rotate to mysql-bin.000056
- Rotate to slave-relay-bin.000093
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;slave-relay-bin.000093&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt; FD event slave
- Rotate to mysql-bin.000056
- FD event master
- bla bla…
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;可以看到000092这个relay log相当多余。这个现象并不会影响replication的正确性，只是让有强迫症的人有点狂躁&lt;/p&gt;
-
-&lt;h2 id=&#34;toc_1&#34;&gt;探索&lt;/h2&gt;
-
-&lt;p&gt;在master上net_serv.cc:my_net_write打断点，可以观察到master的确发出了以下三个事件&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;ROTATE_EVENT&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;backtrace&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;#0  my_net_write (net=0x1ea2858, packet=0x7fffa4002b70 &amp;quot;&amp;quot;, len=48)
-    at /home/vagrant/mysql-5.6.12/sql/net_serv.cc:284
-#1  0x0000000000a48b05 in mysql_binlog_send (thd=0x1ea2600, log_ident=0x7fffa4004c60 &amp;quot;mysql-bin.000052&amp;quot;, pos=167,
-    slave_gtid_executed=0x0) at /home/vagrant/mysql-5.6.12/sql/rpl_master.cc:1336
-#2  0x0000000000a46ad2 in com_binlog_dump (thd=0x1ea2600, packet=0x1ea5d21 &amp;quot;&amp;quot;, packet_length=26)
-    at /home/vagrant/mysql-5.6.12/sql/rpl_master.cc:746
-#3  0x00000000007d1ab9 in dispatch_command (command=COM_BINLOG_DUMP, thd=0x1ea2600, packet=0x1ea5d21 &amp;quot;&amp;quot;,
-    packet_length=26) at /home/vagrant/mysql-5.6.12/sql/sql_parse.cc:1534
-#4  0x00000000007d017b in do_command (thd=0x1ea2600) at /home/vagrant/mysql-5.6.12/sql/sql_parse.cc:1036
-#5  0x0000000000797a08 in do_handle_one_connection (thd_arg=0x1ea2600)
-    at /home/vagrant/mysql-5.6.12/sql/sql_connect.cc:977
-#6  0x00000000007974e4 in handle_one_connection (arg=0x1ea2600)
-    at /home/vagrant/mysql-5.6.12/sql/sql_connect.cc:893
-#7  0x0000000000aea87a in pfs_spawn_thread (arg=0x1e7aa80)
-    at /home/vagrant/mysql-5.6.12/storage/perfschema/pfs.cc:1855
-#8  0x00007ffff7bc7851 in start_thread () from /lib64/libpthread.so.0
-#9  0x00007ffff6b3290d in clone () from /lib64/libc.so.6
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;第二个ROTATE_EVENT&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;backtrace&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;#0  my_net_write (net=0x1ea2858, packet=0x7fffa4002ab0 &amp;quot;&amp;quot;, len=48)
-    at /home/vagrant/mysql-5.6.12/sql/net_serv.cc:284
-#1  0x0000000000a45f04 in fake_rotate_event (net=0x1ea2858, packet=0x1ea2be8,
-    log_file_name=0x7fffc94ff270 &amp;quot;./mysql-bin.000056&amp;quot;, position=4, errmsg=0x7fffc94ffdb0,
-    checksum_alg_arg=1 &#39;\001&#39;) at /home/vagrant/mysql-5.6.12/sql/rpl_master.cc:395
-#2  0x0000000000a4a33d in mysql_binlog_send (thd=0x1ea2600, log_ident=0x7fffa4004c60 &amp;quot;mysql-bin.000052&amp;quot;, pos=167,
-    slave_gtid_executed=0x0) at /home/vagrant/mysql-5.6.12/sql/rpl_master.cc:1728
-#3  0x0000000000a46ad2 in com_binlog_dump (thd=0x1ea2600, packet=0x1ea5d21 &amp;quot;&amp;quot;, packet_length=26)
-    at /home/vagrant/mysql-5.6.12/sql/rpl_master.cc:746
-#4  0x00000000007d1ab9 in dispatch_command (command=COM_BINLOG_DUMP, thd=0x1ea2600, packet=0x1ea5d21 &amp;quot;&amp;quot;,
-    packet_length=26) at /home/vagrant/mysql-5.6.12/sql/sql_parse.cc:1534
-#5  0x00000000007d017b in do_command (thd=0x1ea2600) at /home/vagrant/mysql-5.6.12/sql/sql_parse.cc:1036
-#6  0x0000000000797a08 in do_handle_one_connection (thd_arg=0x1ea2600)
-    at /home/vagrant/mysql-5.6.12/sql/sql_connect.cc:977
-#7  0x00000000007974e4 in handle_one_connection (arg=0x1ea2600)
-    at /home/vagrant/mysql-5.6.12/sql/sql_connect.cc:893
-#8  0x0000000000aea87a in pfs_spawn_thread (arg=0x1e7aa80)
-    at /home/vagrant/mysql-5.6.12/storage/perfschema/pfs.cc:1855
-#9  0x00007ffff7bc7851 in start_thread () from /lib64/libpthread.so.0
-#10 0x00007ffff6b3290d in clone () from /lib64/libc.so.6
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;FORMAT_DESCRIPTION_EVENT&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;可以看到第一个ROTATE_EVENT是由flush logs发出的，第二个ROTATE_EVENT是fake_rotate_event&lt;/p&gt;
-
-&lt;h2 id=&#34;toc_2&#34;&gt;关于fake_rotate_event&lt;/h2&gt;
-
-&lt;p&gt;以前也&lt;a href=&#34;http://ikarishinjieva.github.io/blog/blog/2013/10/16/mysql-mysql_binlog_send-src/&#34;&gt;吐槽&lt;/a&gt;过fake_rotate_event&lt;/p&gt;
-
-&lt;p&gt;master在binlog切换时（不一定是手工flush，也可能是重启，或者容量达到限制）一定要多发一个rotate event，原因如源码rpl_master.cc:mysql_binlog_send中的注释&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;  /*
-    Call fake_rotate_event() in case the previous log (the one which
-    we have just finished reading) did not contain a Rotate event.
-    There are at least two cases when this can happen:
-
-    - The previous binary log was the last one before the master was
-      shutdown and restarted.
-
-    - The previous binary log was GTID-free (did not contain a
-      Previous_gtids_log_event) and the slave is connecting using
-      the GTID protocol.
-
-    This way we tell the slave about the new log&#39;s name and
-    position.  If the binlog is 5.0 or later, the next event we
-    are going to read and send is Format_description_log_event.
-  */
-  if ((file=open_binlog_file(&amp;amp;log, log_file_name, &amp;amp;errmsg)) &amp;lt; 0 ||
-      fake_rotate_event(net, packet, log_file_name, BIN_LOG_HEADER_SIZE,
-                        &amp;amp;errmsg, current_checksum_alg))
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;主要是解决之前没有rotate event发送的场景&lt;/p&gt;
-
-&lt;p&gt;虽然非常想吐槽，但是我也想不出更好的办法&lt;/p&gt;
 </description>
     </item>
     
