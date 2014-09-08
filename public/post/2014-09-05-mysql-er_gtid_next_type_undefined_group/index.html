@@ -238,10 +238,13 @@ COMMIT event
 #20 0x00007f8f02e62b5d in clone () from /lib64/libc.so.6
 </code></pre>
 
-<p>可以看到:
-* relay log进行轮换时<code>purge_first_log</code>
-* Rpl_info_table需要进行<code>flush_info</code>
-* 导致了进行完整提交(<code>ordered_commit</code>), 此时会<code>set_undefined</code></p>
+<p>可以看到:</p>
+
+<ul>
+<li>relay log进行轮换时<code>purge_first_log</code></li>
+<li>Rpl_info_table需要进行<code>flush_info</code></li>
+<li>导致了进行完整提交(<code>ordered_commit</code>), 此时会<code>set_undefined</code></li>
+</ul>
 
 <h3 id="toc_4">为什么relay log轮换会触发完整提交</h3>
 
@@ -275,9 +278,12 @@ COMMIT event
 <p>Otherwise, we accumulate the changes.</p>
 </blockquote>
 
-<p>那么:
-* 当前这个bug满足第一种情况
-* 第二种情况解释了为什么使用innodb表时不会出现这个bug.</p>
+<p>那么:</p>
+
+<ul>
+<li>当前这个bug满足第一种情况</li>
+<li>第二种情况解释了为什么使用innodb表时不会出现这个bug.</li>
+</ul>
 
 <h3 id="toc_5">最后</h3>
 

@@ -168,6 +168,7 @@ set_undefined() {
 	#20 0x00007f8f02e62b5d in clone () from /lib64/libc.so.6
 
 可以看到:
+
 * relay log进行轮换时`purge_first_log`
 * Rpl_info_table需要进行`flush_info`
 * 导致了进行完整提交(`ordered_commit`), 此时会`set_undefined`
@@ -202,6 +203,7 @@ set_undefined() {
 >    Otherwise, we accumulate the changes.
 
 那么:
+
 * 当前这个bug满足第一种情况
 * 第二种情况解释了为什么使用innodb表时不会出现这个bug.
 

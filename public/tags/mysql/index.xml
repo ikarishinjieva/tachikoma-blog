@@ -182,10 +182,13 @@ COMMIT event
 #20 0x00007f8f02e62b5d in clone () from /lib64/libc.so.6
 &lt;/code&gt;&lt;/pre&gt;
 
-&lt;p&gt;可以看到:
-* relay log进行轮换时&lt;code&gt;purge_first_log&lt;/code&gt;
-* Rpl_info_table需要进行&lt;code&gt;flush_info&lt;/code&gt;
-* 导致了进行完整提交(&lt;code&gt;ordered_commit&lt;/code&gt;), 此时会&lt;code&gt;set_undefined&lt;/code&gt;&lt;/p&gt;
+&lt;p&gt;可以看到:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;relay log进行轮换时&lt;code&gt;purge_first_log&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Rpl_info_table需要进行&lt;code&gt;flush_info&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;导致了进行完整提交(&lt;code&gt;ordered_commit&lt;/code&gt;), 此时会&lt;code&gt;set_undefined&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;h3 id=&#34;toc_4&#34;&gt;为什么relay log轮换会触发完整提交&lt;/h3&gt;
 
@@ -219,9 +222,12 @@ COMMIT event
 &lt;p&gt;Otherwise, we accumulate the changes.&lt;/p&gt;
 &lt;/blockquote&gt;
 
-&lt;p&gt;那么:
-* 当前这个bug满足第一种情况
-* 第二种情况解释了为什么使用innodb表时不会出现这个bug.&lt;/p&gt;
+&lt;p&gt;那么:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当前这个bug满足第一种情况&lt;/li&gt;
+&lt;li&gt;第二种情况解释了为什么使用innodb表时不会出现这个bug.&lt;/li&gt;
+&lt;/ul&gt;
 
 &lt;h3 id=&#34;toc_5&#34;&gt;最后&lt;/h3&gt;
 
