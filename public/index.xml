@@ -15,14 +15,16 @@
       <pubDate>Wed, 17 Sep 2014 09:33:00 UTC</pubDate>
       
       <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</guid>
-      <description>&lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
+      <description>
+
+&lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;下面描述的另一种可能来自于taobao的&lt;a href=&#34;http://mysql.taobao.org/index.php/MySQL内核月报_2014.09&#34;&gt;Mysql内核月报&lt;/a&gt;. 主要涉及到&lt;code&gt;insert delayed&lt;/code&gt;语句.&lt;/p&gt;
 
-&lt;p&gt;###关于&lt;code&gt;insert delayed&lt;/code&gt;&lt;/p&gt;
+&lt;h3 id=&#34;toc_0&#34;&gt;关于&lt;code&gt;insert delayed&lt;/code&gt;&lt;/h3&gt;
 
 &lt;p&gt;下面是关于&lt;code&gt;insert delayed&lt;/code&gt;的几个描述:&lt;/p&gt;
 
@@ -32,7 +34,7 @@
 &lt;li&gt;对于Mixed和Row格式的binlog, &lt;code&gt;insert delayed&lt;/code&gt;将使用Row格式. 而对于Statement格式, &lt;code&gt;insert delayed&lt;/code&gt;将退化成普通的&lt;code&gt;insert&lt;/code&gt;语句. (&lt;code&gt;sql_insert.cc:upgrade_lock_type&lt;/code&gt;)&lt;/li&gt;
 &lt;/ul&gt;
 
-&lt;p&gt;###bug描述&lt;/p&gt;
+&lt;h3 id=&#34;toc_1&#34;&gt;bug描述&lt;/h3&gt;
 
 &lt;p&gt;在master上执行以下脚本, 可以在slave上看到复制的error:&lt;/p&gt;
 
@@ -44,7 +46,7 @@ do
 done
 &lt;/code&gt;&lt;/pre&gt;
 
-&lt;p&gt;###分析&lt;/p&gt;
+&lt;h3 id=&#34;toc_2&#34;&gt;分析&lt;/h3&gt;
 
 &lt;p&gt;&lt;code&gt;insert delayed&lt;/code&gt;的执行可以看做分为两个部分: 生产者和消费者.&lt;/p&gt;
 
@@ -74,7 +76,7 @@ COMMIT
 
 &lt;p&gt;执行row_event 2时就找不到GTID的描述, 故error&lt;/p&gt;
 
-&lt;p&gt;###何时commit&lt;/p&gt;
+&lt;h3 id=&#34;toc_3&#34;&gt;何时commit&lt;/h3&gt;
 
 &lt;p&gt;上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit&amp;rdquo;.&lt;/p&gt;
 
@@ -82,7 +84,7 @@ COMMIT
 
 &lt;p&gt;造成这种差异的原因在于标识&lt;code&gt;STMT_END_F&lt;/code&gt;,  在bug的场景中,  两个row_event都带有标识&lt;code&gt;STMT_END_F&lt;/code&gt;, 故会在每个row_event执行后进行commit&lt;/p&gt;
 
-&lt;p&gt;###复盘&lt;/p&gt;
+&lt;h3 id=&#34;toc_4&#34;&gt;复盘&lt;/h3&gt;
 
 &lt;p&gt;这个bug主要的成因是两个并行&lt;code&gt;insert delayed&lt;/code&gt;会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.&lt;/p&gt;
 </description>

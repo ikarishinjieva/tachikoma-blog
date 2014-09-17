@@ -11,7 +11,7 @@ tags = [ "mysql", "bug"]
 
 下面描述的另一种可能来自于taobao的[Mysql内核月报](http://mysql.taobao.org/index.php/MySQL内核月报_2014.09). 主要涉及到`insert delayed`语句.
 
-###关于`insert delayed`
+### 关于`insert delayed`
 
 下面是关于`insert delayed`的几个描述:
 
@@ -19,7 +19,7 @@ tags = [ "mysql", "bug"]
 * `insert delayed`仅支持MyISAM表, 且在Mysql 5.6.6及以后deprecate, 但在目前Mysql 5.6.20中仍可使用.
 * 对于Mixed和Row格式的binlog, `insert delayed`将使用Row格式. 而对于Statement格式, `insert delayed`将退化成普通的`insert`语句. (`sql_insert.cc:upgrade_lock_type`)
 
-###bug描述
+### bug描述
 
 在master上执行以下脚本, 可以在slave上看到复制的error:
 
@@ -32,7 +32,7 @@ do
 done
 ```
 
-###分析
+### 分析
 
 `insert delayed`的执行可以看做分为两个部分: 生产者和消费者. 
 
@@ -64,7 +64,7 @@ COMMIT
 
 执行row_event 2时就找不到GTID的描述, 故error
 
-###何时commit
+### 何时commit
 
 上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit".
 
@@ -73,6 +73,6 @@ COMMIT
 造成这种差异的原因在于标识`STMT_END_F`,  在bug的场景中,  两个row_event都带有标识`STMT_END_F`, 故会在每个row_event执行后进行commit
 
 
-###复盘
+### 复盘
 
 这个bug主要的成因是两个并行`insert delayed`会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.

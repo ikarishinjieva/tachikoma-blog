@@ -71,14 +71,16 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
         <li><a href="tags/bug">bug</a> </li>
       
     </ul></span>
-      <p>之前<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">讨论</a>过Mysql出现以下错误的一种可能:</p>
+      
+
+<p>之前<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">讨论</a>过Mysql出现以下错误的一种可能:</p>
 
 <pre><code>When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
 </code></pre>
 
 <p>下面描述的另一种可能来自于taobao的<a href="http://mysql.taobao.org/index.php/MySQL内核月报_2014.09">Mysql内核月报</a>. 主要涉及到<code>insert delayed</code>语句.</p>
 
-<p>###关于<code>insert delayed</code></p>
+<h3 id="toc_0">关于<code>insert delayed</code></h3>
 
 <p>下面是关于<code>insert delayed</code>的几个描述:</p>
 
@@ -88,7 +90,7 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <li>对于Mixed和Row格式的binlog, <code>insert delayed</code>将使用Row格式. 而对于Statement格式, <code>insert delayed</code>将退化成普通的<code>insert</code>语句. (<code>sql_insert.cc:upgrade_lock_type</code>)</li>
 </ul>
 
-<p>###bug描述</p>
+<h3 id="toc_1">bug描述</h3>
 
 <p>在master上执行以下脚本, 可以在slave上看到复制的error:</p>
 
@@ -100,7 +102,7 @@ do
 done
 </code></pre>
 
-<p>###分析</p>
+<h3 id="toc_2">分析</h3>
 
 <p><code>insert delayed</code>的执行可以看做分为两个部分: 生产者和消费者.</p>
 
@@ -130,7 +132,7 @@ COMMIT
 
 <p>执行row_event 2时就找不到GTID的描述, 故error</p>
 
-<p>###何时commit</p>
+<h3 id="toc_3">何时commit</h3>
 
 <p>上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit&rdquo;.</p>
 
@@ -138,7 +140,7 @@ COMMIT
 
 <p>造成这种差异的原因在于标识<code>STMT_END_F</code>,  在bug的场景中,  两个row_event都带有标识<code>STMT_END_F</code>, 故会在每个row_event执行后进行commit</p>
 
-<p>###复盘</p>
+<h3 id="toc_4">复盘</h3>
 
 <p>这个bug主要的成因是两个并行<code>insert delayed</code>会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.</p>
 
