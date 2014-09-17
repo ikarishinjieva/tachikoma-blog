@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+<head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title> Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能 &middot; Tachikoma blog </title>
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/poole.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/syntax.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/hyde.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/tachikoma.css">
+  <link rel="stylesheet" href="http://fonts.useso.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+
+  
+  <link href="" rel="alternate" type="application/rss+xml" title="Tachikoma blog" />
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/highlight-rainbow.css">
+  <script src="http://ikarishinjieva.github.io/tachikoma-blog/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
+</head>
+
+<body>
+
+<div style="position: fixed;bottom: 0px;right:0px;">
+<img src="http://ikarishinjieva.github.io/tachikoma-blog/tachikoma.gif" style="opacity:0.7; filter:alpha(opacity=70);"/>
+</div>
+<div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      <h2 style="color:rgba(255,255,255,.5)">Tachikoma blog</h2>
+      <p class="lead">
+        <a href="mailto:tac.nil@outlook.com">Email</a> |
+        <a href="http://weibo.com/u/1460219211">Weibo</a> |
+        <a href="https://github.com/ikarishinjieva">Github</a>
+      </p>
+    </div>
+<hr>
+    <ul class="sidebar-nav">
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/">Home</a> </li>
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/tags">Tags</a> </li>
+      
+    </ul>
+
+  </div>
+</div>
+
+<script type="text/javascript">
+var _bdhmProtocol = (("https:" == document.location.protocol) ? " https://" : " http://");
+document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3F4c958230261b97d30128c952acd44fc6' type='text/javascript'%3E%3C/script%3E"));
+</script>
+
+
+<div class="content container">
+<div class="post">
+  <h1>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能</h1>
+  <span class="post-date">Wed, Sep 17, 2014      
+  	<ul style="float:right; " class="post-tags">
+      
+        <li><a href="tags/mysql">mysql</a> </li>
+      
+        <li><a href="tags/bug">bug</a> </li>
+      
+    </ul></span>
+      <p>之前<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">讨论</a>过Mysql出现以下错误的一种可能:</p>
+
+<pre><code>When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
+</code></pre>
+
+<p>下面描述的另一种可能来自于taobao的<a href="http://mysql.taobao.org/index.php/MySQL内核月报_2014.09">Mysql内核月报</a>. 主要涉及到<code>insert delayed</code>语句.</p>
+
+<p>###关于<code>insert delayed</code></p>
+
+<p>下面是关于<code>insert delayed</code>的几个描述:</p>
+
+<ul>
+<li><code>insert delayed</code>对客户端立刻返回, 而将实际数据任务排队到合适的时候才进行.</li>
+<li><code>insert delayed</code>仅支持MyISAM表, 且在Mysql 5.6.6及以后deprecate, 但在目前Mysql 5.6.20中仍可使用.</li>
+<li>对于Mixed和Row格式的binlog, <code>insert delayed</code>将使用Row格式. 而对于Statement格式, <code>insert delayed</code>将退化成普通的<code>insert</code>语句. (<code>sql_insert.cc:upgrade_lock_type</code>)</li>
+</ul>
+
+<p>###bug描述</p>
+
+<p>在master上执行以下脚本, 可以在slave上看到复制的error:</p>
+
+<pre><code>/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &quot;CREATE TABLE a (a int) ENGINE=MyISAM&quot;
+
+for i in {1..2}
+do
+/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &quot;insert delayed into test.a values(1)&quot; &amp;
+done
+</code></pre>
+
+<p>###分析</p>
+
+<p><code>insert delayed</code>的执行可以看做分为两个部分: 生产者和消费者.</p>
+
+<p>同时执行的两个<code>insert delayed</code>, 会触发两个生产者线程将两次执行排队到队列中, 等待消费者进行消费</p>
+
+<p>消费者线程的大概流程是:</p>
+
+<pre><code>handle_delayed_insert
+     Delayed_insert::handle_inserts
+          while(row = rows.get()) {
+               write binlog
+               write table
+          }
+     trans_commit_stmt
+</code></pre>
+
+<p>其形成的binlog形式是:</p>
+
+<pre><code>GTID_DESC
+BEGIN
+row_event 1
+row_event 2
+COMMIT
+</code></pre>
+
+<p>这段binlog在slave上重放时, row_event 1结束后会进行commit, 对GTID执行<code>set_undefined</code> (如果不理解这一段, 请参看<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">之前的讨论</a>)</p>
+
+<p>执行row_event 2时就找不到GTID的描述, 故error</p>
+
+<p>###何时commit</p>
+
+<p>上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit&rdquo;.</p>
+
+<p>对比另外一个场景, 如果进行一个大的insert, 比如<code>insert into a values(1),(2),(3),...,(100000)</code>, 形成的binlog形式与上面一模一样, 但仅在最后一个row_event时进行commit</p>
+
+<p>造成这种差异的原因在于标识<code>STMT_END_F</code>,  在bug的场景中,  两个row_event都带有标识<code>STMT_END_F</code>, 故会在每个row_event执行后进行commit</p>
+
+<p>###复盘</p>
+
+<p>这个bug主要的成因是两个并行<code>insert delayed</code>会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.</p>
+
+</div>
+  <div id="disqus_thread" style="width:450px"></div>
+  <script type="text/javascript">
+       
+      var disqus_shortname = 'tacsay'; 
+
+       
+      (function() {
+          var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+          dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+          (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+      })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+  <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+</div>
+
+  </body>
+</html>

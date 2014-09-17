@@ -7,7 +7,86 @@
     <language>zh-cn</language>
     
     
-    <updated>Fri, 05 Sep 2014 22:00:00 UTC</updated>
+    <updated>Wed, 17 Sep 2014 09:33:00 UTC</updated>
+    
+    <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</link>
+      <pubDate>Wed, 17 Sep 2014 09:33:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</guid>
+      <description>&lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下面描述的另一种可能来自于taobao的&lt;a href=&#34;http://mysql.taobao.org/index.php/MySQL内核月报_2014.09&#34;&gt;Mysql内核月报&lt;/a&gt;. 主要涉及到&lt;code&gt;insert delayed&lt;/code&gt;语句.&lt;/p&gt;
+
+&lt;p&gt;###关于&lt;code&gt;insert delayed&lt;/code&gt;&lt;/p&gt;
+
+&lt;p&gt;下面是关于&lt;code&gt;insert delayed&lt;/code&gt;的几个描述:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;insert delayed&lt;/code&gt;对客户端立刻返回, 而将实际数据任务排队到合适的时候才进行.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;insert delayed&lt;/code&gt;仅支持MyISAM表, 且在Mysql 5.6.6及以后deprecate, 但在目前Mysql 5.6.20中仍可使用.&lt;/li&gt;
+&lt;li&gt;对于Mixed和Row格式的binlog, &lt;code&gt;insert delayed&lt;/code&gt;将使用Row格式. 而对于Statement格式, &lt;code&gt;insert delayed&lt;/code&gt;将退化成普通的&lt;code&gt;insert&lt;/code&gt;语句. (&lt;code&gt;sql_insert.cc:upgrade_lock_type&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;###bug描述&lt;/p&gt;
+
+&lt;p&gt;在master上执行以下脚本, 可以在slave上看到复制的error:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &amp;quot;CREATE TABLE a (a int) ENGINE=MyISAM&amp;quot;
+
+for i in {1..2}
+do
+/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &amp;quot;insert delayed into test.a values(1)&amp;quot; &amp;amp;
+done
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;###分析&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;insert delayed&lt;/code&gt;的执行可以看做分为两个部分: 生产者和消费者.&lt;/p&gt;
+
+&lt;p&gt;同时执行的两个&lt;code&gt;insert delayed&lt;/code&gt;, 会触发两个生产者线程将两次执行排队到队列中, 等待消费者进行消费&lt;/p&gt;
+
+&lt;p&gt;消费者线程的大概流程是:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;handle_delayed_insert
+     Delayed_insert::handle_inserts
+          while(row = rows.get()) {
+               write binlog
+               write table
+          }
+     trans_commit_stmt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其形成的binlog形式是:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;GTID_DESC
+BEGIN
+row_event 1
+row_event 2
+COMMIT
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这段binlog在slave上重放时, row_event 1结束后会进行commit, 对GTID执行&lt;code&gt;set_undefined&lt;/code&gt; (如果不理解这一段, 请参看&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;之前的讨论&lt;/a&gt;)&lt;/p&gt;
+
+&lt;p&gt;执行row_event 2时就找不到GTID的描述, 故error&lt;/p&gt;
+
+&lt;p&gt;###何时commit&lt;/p&gt;
+
+&lt;p&gt;上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit&amp;rdquo;.&lt;/p&gt;
+
+&lt;p&gt;对比另外一个场景, 如果进行一个大的insert, 比如&lt;code&gt;insert into a values(1),(2),(3),...,(100000)&lt;/code&gt;, 形成的binlog形式与上面一模一样, 但仅在最后一个row_event时进行commit&lt;/p&gt;
+
+&lt;p&gt;造成这种差异的原因在于标识&lt;code&gt;STMT_END_F&lt;/code&gt;,  在bug的场景中,  两个row_event都带有标识&lt;code&gt;STMT_END_F&lt;/code&gt;, 故会在每个row_event执行后进行commit&lt;/p&gt;
+
+&lt;p&gt;###复盘&lt;/p&gt;
+
+&lt;p&gt;这个bug主要的成因是两个并行&lt;code&gt;insert delayed&lt;/code&gt;会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能</title>
@@ -2504,53 +2583,6 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
     #2  0x00007f3620c66851 in start_thread () from /lib64/libpthread.so.0
     #3  0x00007f361f9bb90d in clone () from /lib64/libc.so.6
 &lt;/code&gt;&lt;/pre&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>golang, cmd会泄露文件句柄</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-03-25-go-leak-fd</link>
-      <pubDate>Tue, 25 Mar 2014 22:34:00 UTC</pubDate>
-      
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-03-25-go-leak-fd</guid>
-      <description>&lt;p&gt;在go中用&lt;code&gt;cmd&lt;/code&gt;生成新的process时, 在某些os中(包括linux的某些版本), 父进程的文件句柄会泄露到子进程中, 参看代码&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;    package main
-    
-    import (
-        &amp;quot;fmt&amp;quot;
-        &amp;quot;os&amp;quot;
-        &amp;quot;os/exec&amp;quot;
-    )
-    
-    func main() {
-        a, _ := os.OpenFile(&amp;quot;1&amp;quot;, os.O_CREATE|os.O_RDWR, 0755)
-        defer a.Close()
-        cmd := exec.Command(&amp;quot;sh&amp;quot;, &amp;quot;-c&amp;quot;, &amp;quot;lsof +D .; sleep 3&amp;quot;)
-        output, _ := cmd.CombinedOutput()
-        fmt.Printf(&amp;quot;%v\n&amp;quot;, string(output))
-    }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;得到输出&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;    [root@GroupH-HA-1 tmp]# uname -a
-    Linux GroupH-HA-1 2.6.18-194.el5xen #1 SMP Tue Mar 16 22:01:26 EDT 2010 x86_64 x86_64 x86_64 GNU/Linux
-    [root@GroupH-HA-1 tmp]# ./main
-    COMMAND  PID USER   FD   TYPE DEVICE    SIZE    NODE NAME
-    bash    4693 root  cwd    DIR  253,0   32768 3506177 .
-    main    6184 root  cwd    DIR  253,0   32768 3506177 .
-    main    6184 root  txt    REG  253,0 2250464 3506237 ./main
-    main    6184 root    3u   REG  253,0       0 3506238 ./1
-    sh      6189 root  cwd    DIR  253,0   32768 3506177 .
-    sh      6189 root    3u   REG  253,0       0 3506238 ./1
-    lsof    6190 root  cwd    DIR  253,0   32768 3506177 .
-    lsof    6191 root  cwd    DIR  253,0   32768 3506177 .
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;可以看到&lt;code&gt;./1&lt;/code&gt;的文件句柄泄漏到了&lt;code&gt;sh -c&lt;/code&gt;中, 目前为止没有特别好的解决方案&lt;/p&gt;
-
-&lt;p&gt;参看&lt;a href=&#34;https://code.google.com/p/go/issues/detail?id=2603&#34;&gt;此处bug描述&lt;/a&gt;&lt;/p&gt;
 </description>
     </item>
     
