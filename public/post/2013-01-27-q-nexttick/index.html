@@ -66,26 +66,26 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
   <span class="post-date">Sun, Jan 27, 2013      
   	<ul style="float:right; " class="post-tags">
       
-        <li><a href="tags/q">Q</a> </li>
+        <li><a href="tags/Q">Q</a> </li>
       
         <li><a href="tags/javascript">javascript</a> </li>
       
     </ul></span>
       <p><a href="https://github.com/kriskowal/q">Q</a> 其中nextTick的一部分是用MessageChannel实现</p>
 
-<pre><code>    var channel = new MessageChannel();
-    // linked list of tasks (single, with head node)
-    var head = {}, tail = head;
-    channel.port1.onmessage = function () {
-        head = head.next;
-        var task = head.task;
-        delete head.task;
-        task();
-    };
-    nextTick = function (task) {
-        tail = tail.next = {task: task};
-        channel.port2.postMessage(0);
-    };
+<pre><code>	var channel = new MessageChannel();
+	// linked list of tasks (single, with head node)
+	var head = {}, tail = head;
+	channel.port1.onmessage = function () {
+		head = head.next;
+		var task = head.task;
+		delete head.task;
+		task();
+	};
+	nextTick = function (task) {
+		tail = tail.next = {task: task};
+		channel.port2.postMessage(0);
+	};
 </code></pre>
 
 <p>也有一种实现是用setTimeout(task, 0);</p>

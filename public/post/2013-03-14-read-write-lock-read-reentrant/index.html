@@ -84,44 +84,44 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <p>测试代码(我的确用了Main来测试&hellip;)</p>
 
 <pre><code>public static void main(String[] args) throws InterruptedException {
-    final ReadWriteLockReadReentrant lock = new ReadWriteLockReadReentrant();
+	final ReadWriteLockReadReentrant lock = new ReadWriteLockReadReentrant();
 
-    new Thread() {
-        @Override
-        public void run() {
-            try {
-                lock.lockRead();
-                System.out.println(&quot;Reading&quot;);
-                sleep(5000);
-                System.out.println(&quot;Inner Reading&quot;);
-                lock.lockRead();
-            } catch (InterruptedException e) {
+	new Thread() {
+		@Override
+		public void run() {
+			try {
+				lock.lockRead();
+				System.out.println(&quot;Reading&quot;);
+				sleep(5000);
+				System.out.println(&quot;Inner Reading&quot;);
+				lock.lockRead();
+			} catch (InterruptedException e) {
 
-            } finally {
-                System.out.println(&quot;Inner Reading End&quot;);
-                lock.unlockRead();
-                System.out.println(&quot;Reading End&quot;);
-                lock.unlockRead();
-            }
-        }
-    }.start();
-    Thread.sleep(500);
-    
-    new Thread() {
-        @Override
-        public void run() {
-            try {
-                System.out.println(&quot;Request write lock&quot;);
-                lock.lockWrite();
-                System.out.println(&quot;Writing&quot;);
-            } catch (InterruptedException e) {
+			} finally {
+				System.out.println(&quot;Inner Reading End&quot;);
+				lock.unlockRead();
+				System.out.println(&quot;Reading End&quot;);
+				lock.unlockRead();
+			}
+		}
+	}.start();
+	Thread.sleep(500);
+	
+	new Thread() {
+		@Override
+		public void run() {
+			try {
+				System.out.println(&quot;Request write lock&quot;);
+				lock.lockWrite();
+				System.out.println(&quot;Writing&quot;);
+			} catch (InterruptedException e) {
 
-            } finally {
-                System.out.println(&quot;Writing End&quot;);
-                lock.unlockWrite();
-            }
-        }
-    }.start();
+			} finally {
+				System.out.println(&quot;Writing End&quot;);
+				lock.unlockWrite();
+			}
+		}
+	}.start();
 }
 </code></pre>
 
@@ -201,16 +201,16 @@ public class ReadWriteLockReadReentrant {
 <p>标记为&rdquo;//important&rdquo;的判断和writeRequest的判断互换位置</p>
 
 <pre><code>private boolean couldRead(Thread current) {
-    if (hasWriter) {
-        return false;
-    }
-    if (writeRequests &gt; 0) {
-        return false;
-    }
-    if (readers.containsKey(current)) {
-        return true; //important
-    }
-    return true;
+	if (hasWriter) {
+		return false;
+	}
+	if (writeRequests &gt; 0) {
+		return false;
+	}
+	if (readers.containsKey(current)) {
+		return true; //important
+	}
+	return true;
 }
 </code></pre>
 

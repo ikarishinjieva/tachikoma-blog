@@ -3,7 +3,7 @@
   <channel>
       <title>Paxos-Lease on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/paxos-lease/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/paxos-lease/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -67,7 +67,7 @@
 
 &lt;p&gt;这一部分先解决网络脑裂的问题。比如有5个节点的集群，分割为[1,2]和[3,4,5]，那么在[1,2]子集群中不能选举出master，而在[3,4,5]子集群中必须要选举出master。若脑裂前master落在[1,2]，那么租约到期后，[1,2]不能选举出master&lt;/p&gt;
 
-&lt;p&gt;解决方案是：指定2PC步骤中的*某个条件*为“收到集群中超过集群节点数一半的节点（多数派）的正反馈”。那么[3,4,5]子集群可能选出master，而[1,2]由于只有2个节点，小于ceil(5/2) = 3，没法选出master&lt;/p&gt;
+&lt;p&gt;解决方案是：指定2PC步骤中的*某个条件*为“收到集群中超过集群节点数一半的节点（多数派）的正反馈”。那么[3,4,5]子集群可能选出master，而[1,2]由于只有2个节点，小于ceil(&lt;sup&gt;5&lt;/sup&gt;&amp;frasl;&lt;sub&gt;2&lt;/sub&gt;) = 3，没法选出master&lt;/p&gt;
 
 &lt;p&gt;在此，我们称一个集群中，超过集群节点数一半的节点集合为多数派&lt;/p&gt;
 
@@ -158,7 +158,7 @@
 &lt;p&gt;&lt;img src=&#34;../../blog-img/2013-12-19-paxos-lease-2.png&#34; alt=&#34;img&#34; /&gt;
 &lt;/p&gt;
 
-&lt;p&gt;可以看到Proposer和Accepter间有时间差，即&lt;em&gt;某一个时刻*指的是当前Accepter定时器超时的时刻（可能晚于Proposer上租约到期的时刻），但这并没有影响*不变式*成立。即在满足当前不变式时，&lt;/em&gt;&lt;em&gt;不要求各个节点时钟同步&lt;/em&gt;*&lt;/p&gt;
+&lt;p&gt;可以看到Proposer和Accepter间有时间差，即*某一个时刻*指的是当前Accepter定时器超时的时刻（可能晚于Proposer上租约到期的时刻），但这并没有影响*不变式*成立。即在满足当前不变式时，&lt;strong&gt;不要求各个节点时钟同步&lt;/strong&gt;&lt;/p&gt;
 
 &lt;hr /&gt;
 

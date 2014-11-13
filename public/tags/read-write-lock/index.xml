@@ -3,7 +3,7 @@
   <channel>
       <title>Read-Write-Lock on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/read-write-lock/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/read-write-lock/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -26,44 +26,44 @@
 &lt;p&gt;测试代码(我的确用了Main来测试&amp;hellip;)&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;public static void main(String[] args) throws InterruptedException {
-    final ReadWriteLockReadReentrant lock = new ReadWriteLockReadReentrant();
+	final ReadWriteLockReadReentrant lock = new ReadWriteLockReadReentrant();
 
-    new Thread() {
-        @Override
-        public void run() {
-            try {
-                lock.lockRead();
-                System.out.println(&amp;quot;Reading&amp;quot;);
-                sleep(5000);
-                System.out.println(&amp;quot;Inner Reading&amp;quot;);
-                lock.lockRead();
-            } catch (InterruptedException e) {
+	new Thread() {
+		@Override
+		public void run() {
+			try {
+				lock.lockRead();
+				System.out.println(&amp;quot;Reading&amp;quot;);
+				sleep(5000);
+				System.out.println(&amp;quot;Inner Reading&amp;quot;);
+				lock.lockRead();
+			} catch (InterruptedException e) {
 
-            } finally {
-                System.out.println(&amp;quot;Inner Reading End&amp;quot;);
-                lock.unlockRead();
-                System.out.println(&amp;quot;Reading End&amp;quot;);
-                lock.unlockRead();
-            }
-        }
-    }.start();
-    Thread.sleep(500);
-    
-    new Thread() {
-        @Override
-        public void run() {
-            try {
-                System.out.println(&amp;quot;Request write lock&amp;quot;);
-                lock.lockWrite();
-                System.out.println(&amp;quot;Writing&amp;quot;);
-            } catch (InterruptedException e) {
+			} finally {
+				System.out.println(&amp;quot;Inner Reading End&amp;quot;);
+				lock.unlockRead();
+				System.out.println(&amp;quot;Reading End&amp;quot;);
+				lock.unlockRead();
+			}
+		}
+	}.start();
+	Thread.sleep(500);
+	
+	new Thread() {
+		@Override
+		public void run() {
+			try {
+				System.out.println(&amp;quot;Request write lock&amp;quot;);
+				lock.lockWrite();
+				System.out.println(&amp;quot;Writing&amp;quot;);
+			} catch (InterruptedException e) {
 
-            } finally {
-                System.out.println(&amp;quot;Writing End&amp;quot;);
-                lock.unlockWrite();
-            }
-        }
-    }.start();
+			} finally {
+				System.out.println(&amp;quot;Writing End&amp;quot;);
+				lock.unlockWrite();
+			}
+		}
+	}.start();
 }
 &lt;/code&gt;&lt;/pre&gt;
 
@@ -143,16 +143,16 @@ public class ReadWriteLockReadReentrant {
 &lt;p&gt;标记为&amp;rdquo;//important&amp;rdquo;的判断和writeRequest的判断互换位置&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;private boolean couldRead(Thread current) {
-    if (hasWriter) {
-        return false;
-    }
-    if (writeRequests &amp;gt; 0) {
-        return false;
-    }
-    if (readers.containsKey(current)) {
-        return true; //important
-    }
-    return true;
+	if (hasWriter) {
+		return false;
+	}
+	if (writeRequests &amp;gt; 0) {
+		return false;
+	}
+	if (readers.containsKey(current)) {
+		return true; //important
+	}
+	return true;
 }
 &lt;/code&gt;&lt;/pre&gt;
 </description>

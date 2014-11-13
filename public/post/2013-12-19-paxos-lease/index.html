@@ -121,7 +121,7 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 
 <p>这一部分先解决网络脑裂的问题。比如有5个节点的集群，分割为[1,2]和[3,4,5]，那么在[1,2]子集群中不能选举出master，而在[3,4,5]子集群中必须要选举出master。若脑裂前master落在[1,2]，那么租约到期后，[1,2]不能选举出master</p>
 
-<p>解决方案是：指定2PC步骤中的*某个条件*为“收到集群中超过集群节点数一半的节点（多数派）的正反馈”。那么[3,4,5]子集群可能选出master，而[1,2]由于只有2个节点，小于ceil(5/2) = 3，没法选出master</p>
+<p>解决方案是：指定2PC步骤中的*某个条件*为“收到集群中超过集群节点数一半的节点（多数派）的正反馈”。那么[3,4,5]子集群可能选出master，而[1,2]由于只有2个节点，小于ceil(<sup>5</sup>&frasl;<sub>2</sub>) = 3，没法选出master</p>
 
 <p>在此，我们称一个集群中，超过集群节点数一半的节点集合为多数派</p>
 
@@ -212,7 +212,7 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <p><img src="../../blog-img/2013-12-19-paxos-lease-2.png" alt="img" />
 </p>
 
-<p>可以看到Proposer和Accepter间有时间差，即<em>某一个时刻*指的是当前Accepter定时器超时的时刻（可能晚于Proposer上租约到期的时刻），但这并没有影响*不变式*成立。即在满足当前不变式时，</em><em>不要求各个节点时钟同步</em>*</p>
+<p>可以看到Proposer和Accepter间有时间差，即*某一个时刻*指的是当前Accepter定时器超时的时刻（可能晚于Proposer上租约到期的时刻），但这并没有影响*不变式*成立。即在满足当前不变式时，<strong>不要求各个节点时钟同步</strong></p>
 
 <hr />
 

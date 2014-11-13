@@ -74,7 +74,7 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <p>想用宏定义不同的函数，类似于:</p>
 
 <pre><code>(defmacro macro (name)
-       `(defmethod ,(intern (format nil &quot;set-~a&quot; name)) ()))
+	   `(defmethod ,(intern (format nil &quot;set-~a&quot; name)) ()))
 </code></pre>
 
 <p>跑(macro test)，结果就是</p>

@@ -3,7 +3,7 @@
   <channel>
       <title>Noconflict on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/noconflict/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/noconflict/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -15,7 +15,7 @@
       <pubDate>Sun, 17 Mar 2013 23:49:00 UTC</pubDate>
       
       <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-03-17-jquery-noconflict</guid>
-      <description>&lt;p&gt;文章在此：&lt;a href=&#34;http://ued.taobao.com/blog/2013/03/jquery-noconflict/&#34;&gt;http://ued.taobao.com/blog/2013/03/jquery-noconflict/&lt;/a&gt;&lt;/p&gt;
+      <description>&lt;p&gt;文章在此：&lt;a href=&#34;http://ued.taobao.com/blog/2013/03/jquery-noconflict/&#34;&gt;http://ued.taobao.com/blog/&lt;sup&gt;2013&lt;/sup&gt;&amp;frasl;&lt;sub&gt;03&lt;/sub&gt;/jquery-noconflict/&lt;/a&gt;&lt;/p&gt;
 
 &lt;p&gt;倒是也没什么大不了的，略感叹jquery的api设计的周到。&lt;/p&gt;
 </description>

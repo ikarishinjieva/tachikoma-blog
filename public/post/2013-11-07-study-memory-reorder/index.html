@@ -111,53 +111,53 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <pre><code>    package main
     
     import (
-        &quot;fmt&quot;
-        &quot;math/rand&quot;
+    	&quot;fmt&quot;
+    	&quot;math/rand&quot;
     )
     
     var x, y, r1, r2 int
     var detected = 0
     
     func randWait() {
-        for rand.Intn(8) != 0 {
-        }
+    	for rand.Intn(8) != 0 {
+    	}
     }
     
     func main() {
-        beginSig1 := make(chan bool, 1)
-        beginSig2 := make(chan bool, 1)
-        endSig1 := make(chan bool, 1)
-        endSig2 := make(chan bool, 1)
-        go func() {
-            for {
-                &lt;-beginSig1
-                randWait()
-                x = 1
-                r1 = y
-                endSig1 &lt;- true
-            }
-        }()
-        go func() {
-            for {
-                &lt;-beginSig2
-                randWait()
-                y = 1
-                r2 = x
-                endSig2 &lt;- true
-            }
-        }()
-        for i := 1; ; i = i + 1 {
-            x = 0
-            y = 0
-            beginSig1 &lt;- true
-            beginSig2 &lt;- true
-            &lt;-endSig1
-            &lt;-endSig2
-            if r1 == 0 &amp;&amp; r2 == 0 {
-                detected = detected + 1
-                fmt.Println(detected, &quot;reorders detected after &quot;, i, &quot;iterations&quot;)
-            }
-        }
+    	beginSig1 := make(chan bool, 1)
+    	beginSig2 := make(chan bool, 1)
+    	endSig1 := make(chan bool, 1)
+    	endSig2 := make(chan bool, 1)
+    	go func() {
+    		for {
+    			&lt;-beginSig1
+    			randWait()
+    			x = 1
+    			r1 = y
+    			endSig1 &lt;- true
+    		}
+    	}()
+    	go func() {
+    		for {
+    			&lt;-beginSig2
+    			randWait()
+    			y = 1
+    			r2 = x
+    			endSig2 &lt;- true
+    		}
+    	}()
+    	for i := 1; ; i = i + 1 {
+    		x = 0
+    		y = 0
+    		beginSig1 &lt;- true
+    		beginSig2 &lt;- true
+    		&lt;-endSig1
+    		&lt;-endSig2
+    		if r1 == 0 &amp;&amp; r2 == 0 {
+    			detected = detected + 1
+    			fmt.Println(detected, &quot;reorders detected after &quot;, i, &quot;iterations&quot;)
+    		}
+    	}
     }
 </code></pre>
 

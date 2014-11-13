@@ -3,7 +3,7 @@
   <channel>
       <title>Lisp on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/lisp/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/lisp/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -20,7 +20,7 @@
 &lt;p&gt;想用宏定义不同的函数，类似于:&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;(defmacro macro (name)
-       `(defmethod ,(intern (format nil &amp;quot;set-~a&amp;quot; name)) ()))
+	   `(defmethod ,(intern (format nil &amp;quot;set-~a&amp;quot; name)) ()))
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;跑(macro test)，结果就是&lt;/p&gt;

@@ -3,7 +3,7 @@
   <channel>
       <title>Lock on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/lock/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/lock/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -11,10 +11,10 @@
     
     <item>
       <title>MDL_map_partition中对锁的过渡</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-mdl_map_partition-lock-split</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-MDL_map_partition-lock-split</link>
       <pubDate>Sat, 05 Apr 2014 11:43:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-mdl_map_partition-lock-split</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-MDL_map_partition-lock-split</guid>
       <description>
 
 &lt;p&gt;在&lt;code&gt;MDL&lt;/code&gt;源码中有一段&lt;code&gt;MDL_map_partition&lt;/code&gt;中对锁的过渡有点意思, 拿出来分析一下&lt;/p&gt;
@@ -94,8 +94,8 @@
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;分析里的概念&lt;/td&gt;
-&lt;td&gt;Mysql的变量&lt;/td&gt;
+&lt;th&gt;分析里的概念&lt;/th&gt;
+&lt;th&gt;Mysql的变量&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 
@@ -139,31 +139,31 @@
 &lt;h2 id=&#34;toc_0&#34;&gt;linux&lt;/h2&gt;
 
 &lt;pre&gt;&lt;code&gt;    func LockFile(file *os.File) error {
-        return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+    	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
     }
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;h2 id=&#34;toc_1&#34;&gt;windows&lt;/h2&gt;
 
 &lt;pre&gt;&lt;code&gt;    func LockFile(file *os.File) error {
-        h, err := syscall.LoadLibrary(&amp;quot;kernel32.dll&amp;quot;)
-        if err != nil {
-            return err
-        }
-        defer syscall.FreeLibrary(h)
+    	h, err := syscall.LoadLibrary(&amp;quot;kernel32.dll&amp;quot;)
+    	if err != nil {
+    		return err
+    	}
+    	defer syscall.FreeLibrary(h)
     
-        addr, err := syscall.GetProcAddress(h, &amp;quot;LockFile&amp;quot;)
-        if err != nil {
-            return err
-        }
-        for {
-            r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
-            if 0 != int(r0) {
-                break
-            }
-            time.Sleep(100 * time.Millisecond)
-        }
-        return nil
+    	addr, err := syscall.GetProcAddress(h, &amp;quot;LockFile&amp;quot;)
+    	if err != nil {
+    		return err
+    	}
+    	for {
+    		r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
+    		if 0 != int(r0) {
+    			break
+    		}
+    		time.Sleep(100 * time.Millisecond)
+    	}
+    	return nil
     }
 &lt;/code&gt;&lt;/pre&gt;
 </description>

@@ -73,12 +73,12 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 
 <p>查了很久锁定以下代码</p>
 
-<pre><code>    s = s + +(&quot;...&quot;)
+<pre><code>	s = s + +(&quot;...&quot;)
 </code></pre>
 
 <p>一看就是笔误了，压缩后为</p>
 
-<pre><code>    s=s++(&quot;...&quot;)
+<pre><code>	s=s++(&quot;...&quot;)
 </code></pre>
 
 <p>空格被压缩后显然会抛语法错。但没压缩能正常运行就有点意思了，做了以下尝试</p>

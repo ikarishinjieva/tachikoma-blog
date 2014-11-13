@@ -3,7 +3,7 @@
   <channel>
       <title>Javascript on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/javascript/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/javascript/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -19,12 +19,12 @@
 
 &lt;p&gt;查了很久锁定以下代码&lt;/p&gt;
 
-&lt;pre&gt;&lt;code&gt;    s = s + +(&amp;quot;...&amp;quot;)
+&lt;pre&gt;&lt;code&gt;	s = s + +(&amp;quot;...&amp;quot;)
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;一看就是笔误了，压缩后为&lt;/p&gt;
 
-&lt;pre&gt;&lt;code&gt;    s=s++(&amp;quot;...&amp;quot;)
+&lt;pre&gt;&lt;code&gt;	s=s++(&amp;quot;...&amp;quot;)
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;空格被压缩后显然会抛语法错。但没压缩能正常运行就有点意思了，做了以下尝试&lt;/p&gt;
@@ -45,10 +45,10 @@
     
     <item>
       <title>Q源码里uncurry函数分析</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</link>
       <pubDate>Mon, 04 Feb 2013 23:04:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</guid>
       <description>&lt;p&gt;&lt;a href=&#34;http://documentup.com/kriskowal/q/&#34;&gt;Q&lt;/a&gt;里关于uncurry的代码&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;// Attempt to make generics safe in the face of downstream
@@ -127,17 +127,17 @@ b(1, 2, 3);
       <description>&lt;p&gt;需要写多行HTML string到javascript中，怎么排版代码都很难看，最后发现这个利用注释凶残的方法。(不过此方法对firefox无效，firefox中function#toString会吃掉注释)&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;Function.prototype.getMultiLine = function() {  
-    var lines = new String(this);  
-    lines = lines.substring(lines.indexOf(&amp;quot;/*&amp;quot;) + 3, lines.lastIndexOf(&amp;quot;*/&amp;quot;));  
-    return lines;  
+	var lines = new String(this);  
+	lines = lines.substring(lines.indexOf(&amp;quot;/*&amp;quot;) + 3, lines.lastIndexOf(&amp;quot;*/&amp;quot;));  
+	return lines;  
 }  
   
 var ffff = function() {  
-    /* 
-    张三去倒水
+	/* 
+	张三去倒水
  
-     天哪！ 
-     */  
+	 天哪！ 
+	 */  
  }  
    
 document.write(ffff.getMultiLine());
@@ -151,10 +151,10 @@ document.write(ffff.getMultiLine());
     
     <item>
       <title>TProfiler的基本原理</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-tprofiler-basic</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-TProfiler-basic</link>
       <pubDate>Sun, 27 Jan 2013 23:59:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-tprofiler-basic</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-TProfiler-basic</guid>
       <description>&lt;p&gt;粗粗看了看taobao &lt;a href=&#34;https://github.com/taobao/TProfiler&#34;&gt;TProfiler&lt;/a&gt;的源码，原理有点意思，java代码的质量属于实习生级，也缺乏测试。&lt;/p&gt;
 
 &lt;p&gt;一些参考：&lt;/p&gt;
@@ -167,25 +167,25 @@ document.write(ffff.getMultiLine());
     
     <item>
       <title>Q关于nextTick的实现</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-q-nexttick</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-Q-nextTick</link>
       <pubDate>Sun, 27 Jan 2013 23:00:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-q-nexttick</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-Q-nextTick</guid>
       <description>&lt;p&gt;&lt;a href=&#34;https://github.com/kriskowal/q&#34;&gt;Q&lt;/a&gt; 其中nextTick的一部分是用MessageChannel实现&lt;/p&gt;
 
-&lt;pre&gt;&lt;code&gt;    var channel = new MessageChannel();
-    // linked list of tasks (single, with head node)
-    var head = {}, tail = head;
-    channel.port1.onmessage = function () {
-        head = head.next;
-        var task = head.task;
-        delete head.task;
-        task();
-    };
-    nextTick = function (task) {
-        tail = tail.next = {task: task};
-        channel.port2.postMessage(0);
-    };
+&lt;pre&gt;&lt;code&gt;	var channel = new MessageChannel();
+	// linked list of tasks (single, with head node)
+	var head = {}, tail = head;
+	channel.port1.onmessage = function () {
+		head = head.next;
+		var task = head.task;
+		delete head.task;
+		task();
+	};
+	nextTick = function (task) {
+		tail = tail.next = {task: task};
+		channel.port2.postMessage(0);
+	};
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;也有一种实现是用setTimeout(task, 0);&lt;/p&gt;

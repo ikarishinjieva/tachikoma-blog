@@ -3,18 +3,293 @@
   <channel>
       <title>Bug on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/bug/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/bug/index.xml/</link>
     <language>zh-cn</language>
     
     
-    <updated>Wed, 17 Sep 2014 09:33:00 UTC</updated>
+    <updated>Thu, 13 Nov 2014 19:44:00 UTC</updated>
+    
+    <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第三种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</link>
+      <pubDate>Thu, 13 Nov 2014 19:44:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</guid>
+      <description>&lt;p&gt;之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;可能1&lt;/a&gt;和&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/&#34;&gt;可能2&lt;/a&gt;)&lt;/p&gt;
+
+&lt;p&gt;但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.&lt;/p&gt;
+
+&lt;p&gt;###结论&lt;/p&gt;
+
+&lt;p&gt;先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;错误, 而如果强行&lt;code&gt;start slave&lt;/code&gt;, 会永久丢失一个事务, 导致主从数据不一致.&lt;/p&gt;
+
+&lt;p&gt;这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了&lt;code&gt;master_auto_position&lt;/code&gt;来建立复制, 那建议升级到Mysql 5.6.21.&lt;/p&gt;
+
+&lt;p&gt;###如何重现&lt;/p&gt;
+
+&lt;p&gt;先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--- rpl_slave.cc.orig     2014-11-12 16:03:36.000000000 +0800
++++ rpl_slave.cc     2014-11-12 16:05:18.000000000 +0800
+@@ -4378,6 +4378,14 @@
+       THD_STAGE_INFO(thd, stage_queueing_master_event_to_the_relay_log);
+       event_buf= (const char*)mysql-&amp;gt;net.read_pos + 1;
+       DBUG_PRINT(&amp;quot;info&amp;quot;, (&amp;quot;IO thread received event of type %s&amp;quot;, Log_event::get_type_str((Log_event_type)event_buf[EVENT_TYPE_OFFSET])));
++
++      DBUG_EXECUTE_IF(&amp;quot;stop_io_before_reading_xid_log_event&amp;quot;,
++        if (event_buf[EVENT_TYPE_OFFSET] == XID_EVENT) {
++           thd-&amp;gt;killed= THD::KILLED_NO_VALUE;
++           goto err;
++        }
++      );
++
+       if (RUN_HOOK(binlog_relay_io, after_read_event,
+                    (thd, mi,(const char*)mysql-&amp;gt;net.read_pos + 1,
+                     event_len, &amp;amp;event_buf, &amp;amp;event_len)))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后执行下面的mysql-test脚本:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--source include/have_debug.inc
+--source include/have_gtid.inc
+
+--disable_warnings
+--source include/master-slave.inc
+--enable_warnings
+
+--connection master
+create table test.a(a int) engine=innodb;
+flush logs;
+--source include/sync_slave_sql_with_master.inc
+
+--connection slave
+stop slave;
+set global debug=&amp;quot;d,stop_io_before_reading_xid_log_event&amp;quot;;
+
+--connection master
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+
+--connection slave
+start slave io_thread;
+--let $slave_param= Slave_IO_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--connection slave
+set global debug=&amp;quot;&amp;quot;;
+
+start slave;
+--let $slave_param= Slave_SQL_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--let $errno= query_get_value(&amp;quot;SHOW SLAVE STATUS&amp;quot;, &amp;quot;Last_Errno&amp;quot;, 1)
+--if ($errno != &amp;quot;1837&amp;quot;) {
+    --echo Got unexpect errno=$errno
+    --die
+}
+--echo Got Slave SQL error 1837
+
+# Cleanup
+--connection master
+drop table test.a;
+
+--connection slave
+set global debug=&amp;quot;&amp;quot;;
+start slave;
+--source include/sync_slave_sql_with_master.inc
+--source include/rpl_end.inc
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在Mysql 5.6.&lt;sup&gt;19&lt;/sup&gt;&amp;frasl;&lt;sub&gt;5&lt;/sub&gt;.6.20上都能成功重现.&lt;/p&gt;
+
+&lt;p&gt;###Bug分析&lt;/p&gt;
+
+&lt;p&gt;重现这个bug需要具备以下前提条件:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Mysql使用GTID&lt;/li&gt;
+&lt;li&gt;Mysql复制使用了&lt;code&gt;master_auto_position&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;对重现的每个步骤进行说明:&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;首先需要在Master上进行&lt;code&gt;flush logs&lt;/code&gt;, 这样生成的binlog和一般binlog的区别是&lt;code&gt;created&lt;/code&gt;段值为0 (&lt;strong&gt;正常的binlog rotate也会产生这个效果&lt;/strong&gt;). 关于&lt;code&gt;created&lt;/code&gt;在Mysql源码中是如下说明的:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/*
+If this event is at the start of the first binary log since server
+startup &#39;created&#39; should be the timestamp when the event (and the
+binary log) was created.  In the other case (i.e. this event is at
+the start of a binary log created by FLUSH LOGS or automatic
+rotation), &#39;created&#39; should be 0.  This &amp;quot;trick&amp;quot; is used by MySQL
+&amp;gt;=4.0.14 slaves to know whether they must drop stale temporary
+tables and whether they should abort unfinished transaction.
+...
+*/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;额外一提, &lt;code&gt;mysqlbinlog&lt;/code&gt;在解析binlog时对&lt;code&gt;created&lt;/code&gt;段解析是有问题的, 建议直接使用&lt;code&gt;mysqlbinlog --hexdump&lt;/code&gt;来看&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;然后在Slave上设置新加的debug点&lt;code&gt;stop_io_before_reading_xid_log_event&lt;/code&gt;, 并开启IO复制线程.&lt;/p&gt;
+
+&lt;p&gt;在Master上插入以下事务:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样IO复制线程会在commit之前停下来, 假设正在使用relay-log.000001, 那这个relay log中就只含有begin和两个insert&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;接下来去掉debug点,再次开启IO复制线程.&lt;/p&gt;
+
+&lt;p&gt;由于Mysql复制使用了&lt;code&gt;master_auto_position&lt;/code&gt;(前提条件2), 就会重传整个事务, 得到以下的relay log:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;---relay-log.000001
+...
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+ROTATE
+
+--relay-log.000002
+slave FDE (Format_description_event)
+Previous-gtid
+Rotate
+master FDE (created=0)
+Rotate&#39;
+Rotate&#39;&#39;
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;两点说明:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;如果不使用&lt;code&gt;master_auto_position&lt;/code&gt;, 就不会重传整个事务, 而是断点续传&lt;/li&gt;
+&lt;li&gt;relay-log.000002开头好几个rotate看起来比较复杂, 可以先忽略这个细节, 对整个bug没有影响
+得到上面的relay-log后, 如果开启sql线程会发生什么呢?&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;如果之前没有将&lt;code&gt;created&lt;/code&gt;段置为0的那一步, 一切运行都会是正常的, 原因是在master FDE的处理中:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//Format_description_log_event::do_apply_event
+  /*
+    As a transaction NEVER spans on 2 or more binlogs:
+    if we have an active transaction at this point, the master died
+    while writing the transaction to the binary log, i.e. while
+    flushing the binlog cache to the binlog. XA guarantees that master has
+    rolled back. So we roll back.
+    Note: this event could be sent by the master to inform us of the
+    format of its binlog; in other words maybe it is not at its
+    original place when it comes to us; we&#39;ll know this by checking
+    log_pos (&amp;quot;artificial&amp;quot; events have log_pos == 0).
+  */
+  if (!is_artificial_event() &amp;amp;&amp;amp; created &amp;amp;&amp;amp; thd-&amp;gt;transaction.all.ha_list)
+  {
+    /* This is not an error (XA is safe), just an information */
+    rli-&amp;gt;report(INFORMATION_LEVEL, 0,
+                &amp;quot;Rolling back unfinished transaction (no COMMIT &amp;quot;
+                &amp;quot;or ROLLBACK in relay log). A probable cause is that &amp;quot;
+                &amp;quot;the master died while writing the transaction to &amp;quot;
+                &amp;quot;its binary log, thus rolled back too.&amp;quot;); 
+    const_cast&amp;lt;Relay_log_info*&amp;gt;(rli)-&amp;gt;cleanup_context(thd, 1);
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果当前存在事务(&lt;code&gt;thd-&amp;gt;transaction.all.ha_list&lt;/code&gt;), 且master FDE标明它是master启动时产生的binlog, 那slave会将当前事务回滚掉(&lt;code&gt;cleanup_context&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;如果master在写入binlog时崩溃, master重启后会回滚binlog,那slave也会相应产生回滚.&lt;/p&gt;
+
+&lt;p&gt;由于我们之前设置了&lt;code&gt;created&lt;/code&gt;为0, 这个机制就不起作用. 之后会发生什么呢?&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;sql线程是这样执行的:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;从relay-log.000001往下执行, 进入事务&lt;/li&gt;
+&lt;li&gt;发现Rotate, 轮换到relay-log.000002, 但事务并没有结束, 就仿佛一个事务跨了两个relay log(一个事务是可以跨多个relay log)&lt;/li&gt;
+&lt;li&gt;master FDE的保护机制由于FDE的&lt;code&gt;created&lt;/code&gt;为0而失效, 可以继续执行, 且仍在事务中&lt;/li&gt;
+&lt;li&gt;GTID event将当前线程的&lt;code&gt;GTID_NEXT&lt;/code&gt;值重置, 但&lt;strong&gt;并不会回滚事务&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;BEGIN event会将当前事务提交, 清掉&lt;code&gt;GTID_NEXT&lt;/code&gt;, 并开始新的事务&lt;/li&gt;
+&lt;li&gt;之后的insert发现&lt;code&gt;GTID_NEXT&lt;/code&gt;已经为空, 故报了&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的错误&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;需要说明一下BEGIN event为什么会提交事务. 这也很好理解, 如果执行下面的语句:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;BEGIN;
+insert into test.a values(444);
+BEGIN;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.&lt;/p&gt;
+
+&lt;p&gt;###Mysql 5.6.21的修复&lt;/p&gt;
+
+&lt;p&gt;之前我们提到了: GTID event将当前线程的&lt;code&gt;GTID_NEXT&lt;/code&gt;值重置, 但&lt;strong&gt;并不会回滚事务&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;而Mysql 5.6.21进行的修复就是让GTID event进行事务回滚, 代码如下:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//Gtid_log_event::do_apply_event
+if (thd-&amp;gt;owned_gtid.sidno)
+{
+    /*
+      Slave will execute this code if a previous Gtid_log_event was applied
+      but the GTID wasn&#39;t consumed yet (the transaction was not committed
+      nor rolled back).
+      On a client session we cannot do consecutive SET GTID_NEXT without
+      a COMMIT or a ROLLBACK in the middle.
+      Applying this event without rolling back the current transaction may
+      lead to problems, as a &amp;quot;BEGIN&amp;quot; event following this GTID will
+      implicitly commit the &amp;quot;partial transaction&amp;quot; and will consume the
+      GTID. If this &amp;quot;partial transaction&amp;quot; was left in the relay log by the
+      IO thread restarting in the middle of a transaction, you could have
+      the partial transaction being logged with the GTID on the slave,
+      causing data corruption on replication.
+    */
+    if (thd-&amp;gt;transaction.all.ha_list)
+    {
+      /* This is not an error (XA is safe), just an information */
+      rli-&amp;gt;report(INFORMATION_LEVEL, 0,
+                  &amp;quot;Rolling back unfinished transaction (no COMMIT &amp;quot;
+                  &amp;quot;or ROLLBACK in relay log). A probable cause is partial &amp;quot;
+                  &amp;quot;transaction left on relay log because of restarting IO &amp;quot;
+                  &amp;quot;thread with auto-positioning protocol.&amp;quot;);
+      const_cast&amp;lt;Relay_log_info*&amp;gt;(rli)-&amp;gt;cleanup_context(thd, 1);
+    }
+    gtid_rollback(thd);
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中&lt;code&gt;gtid_rollback&lt;/code&gt;是在之前版本中就有, 是用来回滚GTID信息的. 而&lt;code&gt;if (thd-&amp;gt;transaction.all.ha_list)&lt;/code&gt;中的是Mysql 5.6.21的修复部分.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</link>
       <pubDate>Wed, 17 Sep 2014 09:33:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</guid>
       <description>
 
 &lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
@@ -92,10 +367,10 @@ COMMIT
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</link>
       <pubDate>Fri, 05 Sep 2014 22:00:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</guid>
       <description>
 
 &lt;p&gt;最近Mysql slave发生了一次下面的错误:&lt;/p&gt;
@@ -395,9 +670,9 @@ COMMIT event
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;master&lt;/td&gt;
-&lt;td&gt;slave client 1&lt;/td&gt;
-&lt;td&gt;slave client 2&lt;/td&gt;
+&lt;th&gt;master&lt;/th&gt;
+&lt;th&gt;slave client 1&lt;/th&gt;
+&lt;th&gt;slave client 2&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 

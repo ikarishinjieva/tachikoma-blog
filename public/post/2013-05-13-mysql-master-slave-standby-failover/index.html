@@ -125,7 +125,7 @@ standby&gt; show slave status \G
         Master_Log_File: master-bin.000023
 ...
         Exec_Master_Log_Pos: 1391
-          
+		  
 -- 让slave从master上同步到跟standby同样的位置
 slave&gt; start slave until master_log_file = 'master-bin.000023', master_log_pos = 1391;
 </code></pre>
@@ -140,17 +140,17 @@ mysql&gt; show master status \G
     File: mysql-bin.000001 
     Position: 796
     Binlog_Do_DB:
-    Binlog_Ignore_DB:
+	Binlog_Ignore_DB:
 -- 注意与master上的文件名和位置都不同
 
 -- 切换slave的source
 slave&gt; change master to 
-              master_host = '192.168.50.4', 
-              master_port = 3306, 
-              master_user = 'repl', 
-              master_password = 'repl', 
-              master_log_file = 'mysql-bin.000001', 
-              master_log_pos = 796;
+			  master_host = '192.168.50.4', 
+			  master_port = 3306, 
+			  master_user = 'repl', 
+			  master_password = 'repl', 
+			  master_log_file = 'mysql-bin.000001', 
+			  master_log_pos = 796;
 </code></pre>
 
 <p>.8. 测试一下standby-&gt;slave replication.</p>

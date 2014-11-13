@@ -72,17 +72,17 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
       <p>需要写多行HTML string到javascript中，怎么排版代码都很难看，最后发现这个利用注释凶残的方法。(不过此方法对firefox无效，firefox中function#toString会吃掉注释)</p>
 
 <pre><code>Function.prototype.getMultiLine = function() {  
-    var lines = new String(this);  
-    lines = lines.substring(lines.indexOf(&quot;/*&quot;) + 3, lines.lastIndexOf(&quot;*/&quot;));  
-    return lines;  
+	var lines = new String(this);  
+	lines = lines.substring(lines.indexOf(&quot;/*&quot;) + 3, lines.lastIndexOf(&quot;*/&quot;));  
+	return lines;  
 }  
   
 var ffff = function() {  
-    /* 
-    张三去倒水
+	/* 
+	张三去倒水
  
-     天哪！ 
-     */  
+	 天哪！ 
+	 */  
  }  
    
 document.write(ffff.getMultiLine());

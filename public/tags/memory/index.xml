@@ -3,7 +3,7 @@
   <channel>
       <title>Memory on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/memory/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/memory/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -131,53 +131,53 @@ Software Developer’s Manual&lt;/a&gt;，可知&lt;code&gt;dec&lt;/code&gt;有�
 &lt;pre&gt;&lt;code&gt;    package main
     
     import (
-        &amp;quot;fmt&amp;quot;
-        &amp;quot;math/rand&amp;quot;
+    	&amp;quot;fmt&amp;quot;
+    	&amp;quot;math/rand&amp;quot;
     )
     
     var x, y, r1, r2 int
     var detected = 0
     
     func randWait() {
-        for rand.Intn(8) != 0 {
-        }
+    	for rand.Intn(8) != 0 {
+    	}
     }
     
     func main() {
-        beginSig1 := make(chan bool, 1)
-        beginSig2 := make(chan bool, 1)
-        endSig1 := make(chan bool, 1)
-        endSig2 := make(chan bool, 1)
-        go func() {
-            for {
-                &amp;lt;-beginSig1
-                randWait()
-                x = 1
-                r1 = y
-                endSig1 &amp;lt;- true
-            }
-        }()
-        go func() {
-            for {
-                &amp;lt;-beginSig2
-                randWait()
-                y = 1
-                r2 = x
-                endSig2 &amp;lt;- true
-            }
-        }()
-        for i := 1; ; i = i + 1 {
-            x = 0
-            y = 0
-            beginSig1 &amp;lt;- true
-            beginSig2 &amp;lt;- true
-            &amp;lt;-endSig1
-            &amp;lt;-endSig2
-            if r1 == 0 &amp;amp;&amp;amp; r2 == 0 {
-                detected = detected + 1
-                fmt.Println(detected, &amp;quot;reorders detected after &amp;quot;, i, &amp;quot;iterations&amp;quot;)
-            }
-        }
+    	beginSig1 := make(chan bool, 1)
+    	beginSig2 := make(chan bool, 1)
+    	endSig1 := make(chan bool, 1)
+    	endSig2 := make(chan bool, 1)
+    	go func() {
+    		for {
+    			&amp;lt;-beginSig1
+    			randWait()
+    			x = 1
+    			r1 = y
+    			endSig1 &amp;lt;- true
+    		}
+    	}()
+    	go func() {
+    		for {
+    			&amp;lt;-beginSig2
+    			randWait()
+    			y = 1
+    			r2 = x
+    			endSig2 &amp;lt;- true
+    		}
+    	}()
+    	for i := 1; ; i = i + 1 {
+    		x = 0
+    		y = 0
+    		beginSig1 &amp;lt;- true
+    		beginSig2 &amp;lt;- true
+    		&amp;lt;-endSig1
+    		&amp;lt;-endSig2
+    		if r1 == 0 &amp;amp;&amp;amp; r2 == 0 {
+    			detected = detected + 1
+    			fmt.Println(detected, &amp;quot;reorders detected after &amp;quot;, i, &amp;quot;iterations&amp;quot;)
+    		}
+    	}
     }
 &lt;/code&gt;&lt;/pre&gt;
 </description>

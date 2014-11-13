@@ -78,31 +78,31 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
 <h2 id="toc_0">linux</h2>
 
 <pre><code>    func LockFile(file *os.File) error {
-        return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+    	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
     }
 </code></pre>
 
 <h2 id="toc_1">windows</h2>
 
 <pre><code>    func LockFile(file *os.File) error {
-        h, err := syscall.LoadLibrary(&quot;kernel32.dll&quot;)
-        if err != nil {
-            return err
-        }
-        defer syscall.FreeLibrary(h)
+    	h, err := syscall.LoadLibrary(&quot;kernel32.dll&quot;)
+    	if err != nil {
+    		return err
+    	}
+    	defer syscall.FreeLibrary(h)
     
-        addr, err := syscall.GetProcAddress(h, &quot;LockFile&quot;)
-        if err != nil {
-            return err
-        }
-        for {
-            r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
-            if 0 != int(r0) {
-                break
-            }
-            time.Sleep(100 * time.Millisecond)
-        }
-        return nil
+    	addr, err := syscall.GetProcAddress(h, &quot;LockFile&quot;)
+    	if err != nil {
+    		return err
+    	}
+    	for {
+    		r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
+    		if 0 != int(r0) {
+    			break
+    		}
+    		time.Sleep(100 * time.Millisecond)
+    	}
+    	return nil
     }
 </code></pre>
 

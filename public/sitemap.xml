@@ -2,18 +2,23 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
-    <loc>http://ikarishinjieva.github.io/</loc>
-    <lastmod>2014-09-17T09:33:00+00:00</lastmod>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/</loc>
+    <lastmod>2014-11-13T19:44:00+00:00</lastmod>
     <priority>0</priority>
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</loc>
+    <lastmod>2014-11-13T19:44:00+00:00</lastmod>
+  </url>
+  
+  <url>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</loc>
     <lastmod>2014-09-17T09:33:00+00:00</lastmod>
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</loc>
     <lastmod>2014-09-05T22:00:00+00:00</lastmod>
   </url>
   
@@ -58,17 +63,17 @@
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-previous_gtids_log_event</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-PREVIOUS_GTIDS_LOG_EVENT</loc>
     <lastmod>2014-04-17T22:08:00+00:00</lastmod>
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-mdl_map_partition-lock-split</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-MDL_map_partition-lock-split</loc>
     <lastmod>2014-04-05T11:43:00+00:00</lastmod>
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-mdl</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-MDL</loc>
     <lastmod>2014-04-04T20:00:00+00:00</lastmod>
   </url>
   
@@ -223,7 +228,7 @@
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-03-19-some-readings-about-localstorage</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-03-19-some-readings-about-localStorage</loc>
     <lastmod>2013-03-19T23:35:00+00:00</lastmod>
   </url>
   
@@ -283,7 +288,7 @@
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</loc>
     <lastmod>2013-02-04T23:04:00+00:00</lastmod>
   </url>
   
@@ -313,12 +318,12 @@
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-tprofiler-basic</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-TProfiler-basic</loc>
     <lastmod>2013-01-27T23:59:00+00:00</lastmod>
   </url>
   
   <url>
-    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-q-nexttick</loc>
+    <loc>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-Q-nextTick</loc>
     <lastmod>2013-01-27T23:00:00+00:00</lastmod>
   </url>
   

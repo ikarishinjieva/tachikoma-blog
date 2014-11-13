@@ -3,7 +3,7 @@
   <channel>
       <title>Go on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/go/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/go/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -69,31 +69,31 @@
 &lt;h2 id=&#34;toc_0&#34;&gt;linux&lt;/h2&gt;
 
 &lt;pre&gt;&lt;code&gt;    func LockFile(file *os.File) error {
-        return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
+    	return syscall.Flock(int(file.Fd()), syscall.LOCK_EX)
     }
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;h2 id=&#34;toc_1&#34;&gt;windows&lt;/h2&gt;
 
 &lt;pre&gt;&lt;code&gt;    func LockFile(file *os.File) error {
-        h, err := syscall.LoadLibrary(&amp;quot;kernel32.dll&amp;quot;)
-        if err != nil {
-            return err
-        }
-        defer syscall.FreeLibrary(h)
+    	h, err := syscall.LoadLibrary(&amp;quot;kernel32.dll&amp;quot;)
+    	if err != nil {
+    		return err
+    	}
+    	defer syscall.FreeLibrary(h)
     
-        addr, err := syscall.GetProcAddress(h, &amp;quot;LockFile&amp;quot;)
-        if err != nil {
-            return err
-        }
-        for {
-            r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
-            if 0 != int(r0) {
-                break
-            }
-            time.Sleep(100 * time.Millisecond)
-        }
-        return nil
+    	addr, err := syscall.GetProcAddress(h, &amp;quot;LockFile&amp;quot;)
+    	if err != nil {
+    		return err
+    	}
+    	for {
+    		r0, _, _ := syscall.Syscall6(addr, 5, file.Fd(), 0, 0, 0, 1, 0)
+    		if 0 != int(r0) {
+    			break
+    		}
+    		time.Sleep(100 * time.Millisecond)
+    	}
+    	return nil
     }
 &lt;/code&gt;&lt;/pre&gt;
 </description>

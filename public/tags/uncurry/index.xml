@@ -3,7 +3,7 @@
   <channel>
       <title>Uncurry on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/uncurry/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/uncurry/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -11,10 +11,10 @@
     
     <item>
       <title>Q源码里uncurry函数分析</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</link>
       <pubDate>Mon, 04 Feb 2013 23:04:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</guid>
       <description>&lt;p&gt;&lt;a href=&#34;http://documentup.com/kriskowal/q/&#34;&gt;Q&lt;/a&gt;里关于uncurry的代码&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;// Attempt to make generics safe in the face of downstream

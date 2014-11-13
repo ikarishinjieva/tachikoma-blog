@@ -3,7 +3,7 @@
   <channel>
       <title>Workspace on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/workspace/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/workspace/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -58,8 +58,8 @@ public class MultiThread {
         executorService.execute(new T1());
         Thread.sleep(1000);
         executorService.execute(new T2());
-        
-        //dispose
+		
+		//dispose
         executorService.awaitTermination(1, TimeUnit.HOURS);
     }
 }
@@ -102,8 +102,8 @@ public class MultiThread2 {
         executorService.execute(new T1());
         Thread.sleep(1000);
         executorService.execute(new T2());
-        
-        //dispose
+		
+		//dispose
         Thread.sleep(10000);
         synchronized (MultiThread2.class) {
             MultiThread2.class.notify();

@@ -3,7 +3,7 @@
   <channel>
       <title>Q on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/q/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/q/index.xml/</link>
     <language>zh-cn</language>
     
     
@@ -11,10 +11,10 @@
     
     <item>
       <title>Q源码里uncurry函数分析</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</link>
       <pubDate>Mon, 04 Feb 2013 23:04:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-q-uncurry-safe-meta-programming</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-02-04-Q-uncurry-safe-meta-programming</guid>
       <description>&lt;p&gt;&lt;a href=&#34;http://documentup.com/kriskowal/q/&#34;&gt;Q&lt;/a&gt;里关于uncurry的代码&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;// Attempt to make generics safe in the face of downstream
@@ -67,25 +67,25 @@ var array_slice = uncurryThis(Array.prototype.slice);
     
     <item>
       <title>Q关于nextTick的实现</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-q-nexttick</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-Q-nextTick</link>
       <pubDate>Sun, 27 Jan 2013 23:00:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-q-nexttick</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2013-01-27-Q-nextTick</guid>
       <description>&lt;p&gt;&lt;a href=&#34;https://github.com/kriskowal/q&#34;&gt;Q&lt;/a&gt; 其中nextTick的一部分是用MessageChannel实现&lt;/p&gt;
 
-&lt;pre&gt;&lt;code&gt;    var channel = new MessageChannel();
-    // linked list of tasks (single, with head node)
-    var head = {}, tail = head;
-    channel.port1.onmessage = function () {
-        head = head.next;
-        var task = head.task;
-        delete head.task;
-        task();
-    };
-    nextTick = function (task) {
-        tail = tail.next = {task: task};
-        channel.port2.postMessage(0);
-    };
+&lt;pre&gt;&lt;code&gt;	var channel = new MessageChannel();
+	// linked list of tasks (single, with head node)
+	var head = {}, tail = head;
+	channel.port1.onmessage = function () {
+		head = head.next;
+		var task = head.task;
+		delete head.task;
+		task();
+	};
+	nextTick = function (task) {
+		tail = tail.next = {task: task};
+		channel.port2.postMessage(0);
+	};
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;也有一种实现是用setTimeout(task, 0);&lt;/p&gt;

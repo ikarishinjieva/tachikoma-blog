@@ -3,18 +3,293 @@
   <channel>
       <title>Mysql on Tachikoma blog </title>
       <generator uri="https://hugo.spf13.com">Hugo</generator>
-    <link>http://ikarishinjieva.github.io/tags/mysql/index.xml</link>
+    <link>http://ikarishinjieva.github.io/tachikoma-blog/tags/mysql/index.xml/</link>
     <language>zh-cn</language>
     
     
-    <updated>Wed, 17 Sep 2014 09:33:00 UTC</updated>
+    <updated>Thu, 13 Nov 2014 19:44:00 UTC</updated>
+    
+    <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第三种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</link>
+      <pubDate>Thu, 13 Nov 2014 19:44:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</guid>
+      <description>&lt;p&gt;之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;可能1&lt;/a&gt;和&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/&#34;&gt;可能2&lt;/a&gt;)&lt;/p&gt;
+
+&lt;p&gt;但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.&lt;/p&gt;
+
+&lt;p&gt;###结论&lt;/p&gt;
+
+&lt;p&gt;先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;错误, 而如果强行&lt;code&gt;start slave&lt;/code&gt;, 会永久丢失一个事务, 导致主从数据不一致.&lt;/p&gt;
+
+&lt;p&gt;这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了&lt;code&gt;master_auto_position&lt;/code&gt;来建立复制, 那建议升级到Mysql 5.6.21.&lt;/p&gt;
+
+&lt;p&gt;###如何重现&lt;/p&gt;
+
+&lt;p&gt;先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--- rpl_slave.cc.orig     2014-11-12 16:03:36.000000000 +0800
++++ rpl_slave.cc     2014-11-12 16:05:18.000000000 +0800
+@@ -4378,6 +4378,14 @@
+       THD_STAGE_INFO(thd, stage_queueing_master_event_to_the_relay_log);
+       event_buf= (const char*)mysql-&amp;gt;net.read_pos + 1;
+       DBUG_PRINT(&amp;quot;info&amp;quot;, (&amp;quot;IO thread received event of type %s&amp;quot;, Log_event::get_type_str((Log_event_type)event_buf[EVENT_TYPE_OFFSET])));
++
++      DBUG_EXECUTE_IF(&amp;quot;stop_io_before_reading_xid_log_event&amp;quot;,
++        if (event_buf[EVENT_TYPE_OFFSET] == XID_EVENT) {
++           thd-&amp;gt;killed= THD::KILLED_NO_VALUE;
++           goto err;
++        }
++      );
++
+       if (RUN_HOOK(binlog_relay_io, after_read_event,
+                    (thd, mi,(const char*)mysql-&amp;gt;net.read_pos + 1,
+                     event_len, &amp;amp;event_buf, &amp;amp;event_len)))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;然后执行下面的mysql-test脚本:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;--source include/have_debug.inc
+--source include/have_gtid.inc
+
+--disable_warnings
+--source include/master-slave.inc
+--enable_warnings
+
+--connection master
+create table test.a(a int) engine=innodb;
+flush logs;
+--source include/sync_slave_sql_with_master.inc
+
+--connection slave
+stop slave;
+set global debug=&amp;quot;d,stop_io_before_reading_xid_log_event&amp;quot;;
+
+--connection master
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+
+--connection slave
+start slave io_thread;
+--let $slave_param= Slave_IO_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--connection slave
+set global debug=&amp;quot;&amp;quot;;
+
+start slave;
+--let $slave_param= Slave_SQL_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--let $errno= query_get_value(&amp;quot;SHOW SLAVE STATUS&amp;quot;, &amp;quot;Last_Errno&amp;quot;, 1)
+--if ($errno != &amp;quot;1837&amp;quot;) {
+    --echo Got unexpect errno=$errno
+    --die
+}
+--echo Got Slave SQL error 1837
+
+# Cleanup
+--connection master
+drop table test.a;
+
+--connection slave
+set global debug=&amp;quot;&amp;quot;;
+start slave;
+--source include/sync_slave_sql_with_master.inc
+--source include/rpl_end.inc
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在Mysql 5.6.&lt;sup&gt;19&lt;/sup&gt;&amp;frasl;&lt;sub&gt;5&lt;/sub&gt;.6.20上都能成功重现.&lt;/p&gt;
+
+&lt;p&gt;###Bug分析&lt;/p&gt;
+
+&lt;p&gt;重现这个bug需要具备以下前提条件:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Mysql使用GTID&lt;/li&gt;
+&lt;li&gt;Mysql复制使用了&lt;code&gt;master_auto_position&lt;/code&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;对重现的每个步骤进行说明:&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;首先需要在Master上进行&lt;code&gt;flush logs&lt;/code&gt;, 这样生成的binlog和一般binlog的区别是&lt;code&gt;created&lt;/code&gt;段值为0 (&lt;strong&gt;正常的binlog rotate也会产生这个效果&lt;/strong&gt;). 关于&lt;code&gt;created&lt;/code&gt;在Mysql源码中是如下说明的:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/*
+If this event is at the start of the first binary log since server
+startup &#39;created&#39; should be the timestamp when the event (and the
+binary log) was created.  In the other case (i.e. this event is at
+the start of a binary log created by FLUSH LOGS or automatic
+rotation), &#39;created&#39; should be 0.  This &amp;quot;trick&amp;quot; is used by MySQL
+&amp;gt;=4.0.14 slaves to know whether they must drop stale temporary
+tables and whether they should abort unfinished transaction.
+...
+*/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;额外一提, &lt;code&gt;mysqlbinlog&lt;/code&gt;在解析binlog时对&lt;code&gt;created&lt;/code&gt;段解析是有问题的, 建议直接使用&lt;code&gt;mysqlbinlog --hexdump&lt;/code&gt;来看&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;然后在Slave上设置新加的debug点&lt;code&gt;stop_io_before_reading_xid_log_event&lt;/code&gt;, 并开启IO复制线程.&lt;/p&gt;
+
+&lt;p&gt;在Master上插入以下事务:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这样IO复制线程会在commit之前停下来, 假设正在使用relay-log.000001, 那这个relay log中就只含有begin和两个insert&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;接下来去掉debug点,再次开启IO复制线程.&lt;/p&gt;
+
+&lt;p&gt;由于Mysql复制使用了&lt;code&gt;master_auto_position&lt;/code&gt;(前提条件2), 就会重传整个事务, 得到以下的relay log:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;---relay-log.000001
+...
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+ROTATE
+
+--relay-log.000002
+slave FDE (Format_description_event)
+Previous-gtid
+Rotate
+master FDE (created=0)
+Rotate&#39;
+Rotate&#39;&#39;
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;两点说明:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;如果不使用&lt;code&gt;master_auto_position&lt;/code&gt;, 就不会重传整个事务, 而是断点续传&lt;/li&gt;
+&lt;li&gt;relay-log.000002开头好几个rotate看起来比较复杂, 可以先忽略这个细节, 对整个bug没有影响
+得到上面的relay-log后, 如果开启sql线程会发生什么呢?&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;如果之前没有将&lt;code&gt;created&lt;/code&gt;段置为0的那一步, 一切运行都会是正常的, 原因是在master FDE的处理中:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//Format_description_log_event::do_apply_event
+  /*
+    As a transaction NEVER spans on 2 or more binlogs:
+    if we have an active transaction at this point, the master died
+    while writing the transaction to the binary log, i.e. while
+    flushing the binlog cache to the binlog. XA guarantees that master has
+    rolled back. So we roll back.
+    Note: this event could be sent by the master to inform us of the
+    format of its binlog; in other words maybe it is not at its
+    original place when it comes to us; we&#39;ll know this by checking
+    log_pos (&amp;quot;artificial&amp;quot; events have log_pos == 0).
+  */
+  if (!is_artificial_event() &amp;amp;&amp;amp; created &amp;amp;&amp;amp; thd-&amp;gt;transaction.all.ha_list)
+  {
+    /* This is not an error (XA is safe), just an information */
+    rli-&amp;gt;report(INFORMATION_LEVEL, 0,
+                &amp;quot;Rolling back unfinished transaction (no COMMIT &amp;quot;
+                &amp;quot;or ROLLBACK in relay log). A probable cause is that &amp;quot;
+                &amp;quot;the master died while writing the transaction to &amp;quot;
+                &amp;quot;its binary log, thus rolled back too.&amp;quot;); 
+    const_cast&amp;lt;Relay_log_info*&amp;gt;(rli)-&amp;gt;cleanup_context(thd, 1);
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;如果当前存在事务(&lt;code&gt;thd-&amp;gt;transaction.all.ha_list&lt;/code&gt;), 且master FDE标明它是master启动时产生的binlog, 那slave会将当前事务回滚掉(&lt;code&gt;cleanup_context&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;如果master在写入binlog时崩溃, master重启后会回滚binlog,那slave也会相应产生回滚.&lt;/p&gt;
+
+&lt;p&gt;由于我们之前设置了&lt;code&gt;created&lt;/code&gt;为0, 这个机制就不起作用. 之后会发生什么呢?&lt;/p&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;sql线程是这样执行的:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;从relay-log.000001往下执行, 进入事务&lt;/li&gt;
+&lt;li&gt;发现Rotate, 轮换到relay-log.000002, 但事务并没有结束, 就仿佛一个事务跨了两个relay log(一个事务是可以跨多个relay log)&lt;/li&gt;
+&lt;li&gt;master FDE的保护机制由于FDE的&lt;code&gt;created&lt;/code&gt;为0而失效, 可以继续执行, 且仍在事务中&lt;/li&gt;
+&lt;li&gt;GTID event将当前线程的&lt;code&gt;GTID_NEXT&lt;/code&gt;值重置, 但&lt;strong&gt;并不会回滚事务&lt;/strong&gt;&lt;/li&gt;
+&lt;li&gt;BEGIN event会将当前事务提交, 清掉&lt;code&gt;GTID_NEXT&lt;/code&gt;, 并开始新的事务&lt;/li&gt;
+&lt;li&gt;之后的insert发现&lt;code&gt;GTID_NEXT&lt;/code&gt;已经为空, 故报了&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的错误&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;需要说明一下BEGIN event为什么会提交事务. 这也很好理解, 如果执行下面的语句:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;BEGIN;
+insert into test.a values(444);
+BEGIN;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.&lt;/p&gt;
+
+&lt;p&gt;###Mysql 5.6.21的修复&lt;/p&gt;
+
+&lt;p&gt;之前我们提到了: GTID event将当前线程的&lt;code&gt;GTID_NEXT&lt;/code&gt;值重置, 但&lt;strong&gt;并不会回滚事务&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;而Mysql 5.6.21进行的修复就是让GTID event进行事务回滚, 代码如下:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;//Gtid_log_event::do_apply_event
+if (thd-&amp;gt;owned_gtid.sidno)
+{
+    /*
+      Slave will execute this code if a previous Gtid_log_event was applied
+      but the GTID wasn&#39;t consumed yet (the transaction was not committed
+      nor rolled back).
+      On a client session we cannot do consecutive SET GTID_NEXT without
+      a COMMIT or a ROLLBACK in the middle.
+      Applying this event without rolling back the current transaction may
+      lead to problems, as a &amp;quot;BEGIN&amp;quot; event following this GTID will
+      implicitly commit the &amp;quot;partial transaction&amp;quot; and will consume the
+      GTID. If this &amp;quot;partial transaction&amp;quot; was left in the relay log by the
+      IO thread restarting in the middle of a transaction, you could have
+      the partial transaction being logged with the GTID on the slave,
+      causing data corruption on replication.
+    */
+    if (thd-&amp;gt;transaction.all.ha_list)
+    {
+      /* This is not an error (XA is safe), just an information */
+      rli-&amp;gt;report(INFORMATION_LEVEL, 0,
+                  &amp;quot;Rolling back unfinished transaction (no COMMIT &amp;quot;
+                  &amp;quot;or ROLLBACK in relay log). A probable cause is partial &amp;quot;
+                  &amp;quot;transaction left on relay log because of restarting IO &amp;quot;
+                  &amp;quot;thread with auto-positioning protocol.&amp;quot;);
+      const_cast&amp;lt;Relay_log_info*&amp;gt;(rli)-&amp;gt;cleanup_context(thd, 1);
+    }
+    gtid_rollback(thd);
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其中&lt;code&gt;gtid_rollback&lt;/code&gt;是在之前版本中就有, 是用来回滚GTID信息的. 而&lt;code&gt;if (thd-&amp;gt;transaction.all.ha_list)&lt;/code&gt;中的是Mysql 5.6.21的修复部分.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</link>
       <pubDate>Wed, 17 Sep 2014 09:33:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</guid>
       <description>
 
 &lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
@@ -92,10 +367,10 @@ COMMIT
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</link>
       <pubDate>Fri, 05 Sep 2014 22:00:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</guid>
       <description>
 
 &lt;p&gt;最近Mysql slave发生了一次下面的错误:&lt;/p&gt;
@@ -913,10 +1188,10 @@ mysql-slave&amp;gt; show status like &#39;%open%&#39;;
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;用例&lt;/td&gt;
-&lt;td&gt;row&lt;/td&gt;
-&lt;td&gt;statement&lt;/td&gt;
-&lt;td&gt;mixed&lt;/td&gt;
+&lt;th&gt;用例&lt;/th&gt;
+&lt;th&gt;row&lt;/th&gt;
+&lt;th&gt;statement&lt;/th&gt;
+&lt;th&gt;mixed&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 
@@ -1167,9 +1442,9 @@ End_log_pos: 371
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  4:38:58 server id 1  end_log_pos 120 CRC32 0xb935033a  Start: binlog v 4, server v 5.6.17-debug-log created 140612  4:38:58
+#140612  4:38:58 server id 1  end_log_pos 120 CRC32 0xb935033a 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  4:38:58
 # at 120
-#140612  4:42:30 server id 1  end_log_pos 257 CRC32 0x8f9ccf27  Query   thread_id=2 exec_time=0 error_code=0
+#140612  4:42:30 server id 1  end_log_pos 257 CRC32 0x8f9ccf27 	Query	thread_id=2	exec_time=0	error_code=0
 SET TIMESTAMP=1402548150/*!*/;
 SET @@session.pseudo_thread_id=2/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1182,7 +1457,7 @@ SET @@session.collation_database=DEFAULT/*!*/;
 DROP TEMPORARY TABLE IF EXISTS `test`.`t` /* generated by server */
 /*!*/;
 # at 257
-#140612  4:42:51 server id 1  end_log_pos 304 CRC32 0x62766a77  Rotate to mysql-bin.000015  pos: 4
+#140612  4:42:51 server id 1  end_log_pos 304 CRC32 0x62766a77 	Rotate to mysql-bin.000015  pos: 4
 DELIMITER ;
 # End of log file
 ROLLBACK /* added by mysqlbinlog */;
@@ -1198,10 +1473,10 @@ ROLLBACK /* added by mysqlbinlog */;
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  4:42:51 server id 1  end_log_pos 120 CRC32 0xc3707cb7  Start: binlog v 4, server v 5.6.17-debug-log created 140612  4:42:51
+#140612  4:42:51 server id 1  end_log_pos 120 CRC32 0xc3707cb7 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  4:42:51
 # Warning: this binlog is either in use or was not closed properly.
 # at 120
-#140612  4:42:58 server id 1  end_log_pos 195 CRC32 0x2fd0ed95  Query   thread_id=2 exec_time=0 error_code=0
+#140612  4:42:58 server id 1  end_log_pos 195 CRC32 0x2fd0ed95 	Query	thread_id=2	exec_time=0	error_code=0
 SET TIMESTAMP=1402548178/*!*/;
 SET @@session.pseudo_thread_id=2/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1214,12 +1489,12 @@ SET @@session.collation_database=DEFAULT/*!*/;
 BEGIN
 /*!*/;
 # at 195
-#140612  4:42:58 server id 1  end_log_pos 302 CRC32 0xfc742b50  Query   thread_id=2 exec_time=0 error_code=0
+#140612  4:42:58 server id 1  end_log_pos 302 CRC32 0xfc742b50 	Query	thread_id=2	exec_time=0	error_code=0
 SET TIMESTAMP=1402548178/*!*/;
 create temporary table test.t (t int)
 /*!*/;
 # at 302
-#140612  4:43:00 server id 1  end_log_pos 371 CRC32 0x25648832  Query   thread_id=2 exec_time=0 error_code=0
+#140612  4:43:00 server id 1  end_log_pos 371 CRC32 0x25648832 	Query	thread_id=2	exec_time=0	error_code=0
 SET TIMESTAMP=1402548180/*!*/;
 COMMIT
 /*!*/;
@@ -1269,10 +1544,10 @@ Query OK, 0 rows affected (0.01 sec)
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  6:02:38 server id 1  end_log_pos 120 CRC32 0x31b6357c  Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:02:38
+#140612  6:02:38 server id 1  end_log_pos 120 CRC32 0x31b6357c 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:02:38
 # Warning: this binlog is either in use or was not closed properly.
 # at 120
-#140612  6:02:53 server id 1  end_log_pos 188 CRC32 0x23bceabc  Query   thread_id=6 exec_time=0 error_code=0
+#140612  6:02:53 server id 1  end_log_pos 188 CRC32 0x23bceabc 	Query	thread_id=6	exec_time=0	error_code=0
 SET TIMESTAMP=1402552973/*!*/;
 SET @@session.pseudo_thread_id=6/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1285,14 +1560,14 @@ SET @@session.collation_database=DEFAULT/*!*/;
 BEGIN
 /*!*/;
 # at 188
-#140612  6:02:53 server id 1  end_log_pos 232 CRC32 0x1a87cc74  Table_map: `test`.`a` mapped to number 70
+#140612  6:02:53 server id 1  end_log_pos 232 CRC32 0x1a87cc74 	Table_map: `test`.`a` mapped to number 70
 # at 232
-#140612  6:02:53 server id 1  end_log_pos 272 CRC32 0xf0c862fb  Write_rows: table id 70 flags: STMT_END_F
+#140612  6:02:53 server id 1  end_log_pos 272 CRC32 0xf0c862fb 	Write_rows: table id 70 flags: STMT_END_F
 ### INSERT INTO `test`.`a`
 ### SET
 ###   @1=2
 # at 272
-#140612  6:02:55 server id 1  end_log_pos 303 CRC32 0xb2f66e82  Xid = 92
+#140612  6:02:55 server id 1  end_log_pos 303 CRC32 0xb2f66e82 	Xid = 92
 COMMIT/*!*/;
 DELIMITER ;
 # End of log file
@@ -1340,10 +1615,10 @@ Query OK, 0 rows affected (0.00 sec)
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  6:07:43 server id 1  end_log_pos 120 CRC32 0xbcd985c3  Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:07:43
+#140612  6:07:43 server id 1  end_log_pos 120 CRC32 0xbcd985c3 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:07:43
 # Warning: this binlog is either in use or was not closed properly.
 # at 120
-#140612  6:07:50 server id 1  end_log_pos 195 CRC32 0xf5ea27f6  Query   thread_id=7 exec_time=0 error_code=0
+#140612  6:07:50 server id 1  end_log_pos 195 CRC32 0xf5ea27f6 	Query	thread_id=7	exec_time=0	error_code=0
 SET TIMESTAMP=1402553270/*!*/;
 SET @@session.pseudo_thread_id=7/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1356,22 +1631,22 @@ SET @@session.collation_database=DEFAULT/*!*/;
 BEGIN
 /*!*/;
 # at 195
-#140612  6:07:50 server id 1  end_log_pos 302 CRC32 0xa52fbe74  Query   thread_id=7 exec_time=0 error_code=0
+#140612  6:07:50 server id 1  end_log_pos 302 CRC32 0xa52fbe74 	Query	thread_id=7	exec_time=0	error_code=0
 SET TIMESTAMP=1402553270/*!*/;
 create temporary table test.t (t int)
 /*!*/;
 # at 302
-#140612  6:07:55 server id 1  end_log_pos 400 CRC32 0x037b8754  Query   thread_id=7 exec_time=0 error_code=0
+#140612  6:07:55 server id 1  end_log_pos 400 CRC32 0x037b8754 	Query	thread_id=7	exec_time=0	error_code=0
 SET TIMESTAMP=1402553275/*!*/;
 insert into test.t values(3)
 /*!*/;
 # at 400
-#140612  6:07:59 server id 1  end_log_pos 509 CRC32 0xa1dc2124  Query   thread_id=7 exec_time=0 error_code=0
+#140612  6:07:59 server id 1  end_log_pos 509 CRC32 0xa1dc2124 	Query	thread_id=7	exec_time=0	error_code=0
 SET TIMESTAMP=1402553279/*!*/;
 insert into test.a select t from test.t
 /*!*/;
 # at 509
-#140612  6:08:01 server id 1  end_log_pos 540 CRC32 0xf7e3aa59  Xid = 102
+#140612  6:08:01 server id 1  end_log_pos 540 CRC32 0xf7e3aa59 	Xid = 102
 COMMIT/*!*/;
 DELIMITER ;
 # End of log file
@@ -1427,7 +1702,7 @@ mysql&amp;gt; show warnings;
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  6:25:58 server id 1  end_log_pos 120 CRC32 0x8f8f4247  Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:25:58
+#140612  6:25:58 server id 1  end_log_pos 120 CRC32 0x8f8f4247 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:25:58
 # Warning: this binlog is either in use or was not closed properly.
 DELIMITER ;
 # End of log file
@@ -1483,10 +1758,10 @@ mysql&amp;gt; show warnings;
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  6:22:03 server id 1  end_log_pos 120 CRC32 0x8ebd7db6  Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:22:03
+#140612  6:22:03 server id 1  end_log_pos 120 CRC32 0x8ebd7db6 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:22:03
 # Warning: this binlog is either in use or was not closed properly.
 # at 120
-#140612  6:22:13 server id 1  end_log_pos 195 CRC32 0x2ef37ea7  Query   thread_id=9 exec_time=0 error_code=0
+#140612  6:22:13 server id 1  end_log_pos 195 CRC32 0x2ef37ea7 	Query	thread_id=9	exec_time=0	error_code=0
 SET TIMESTAMP=1402554133/*!*/;
 SET @@session.pseudo_thread_id=9/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1499,22 +1774,22 @@ SET @@session.collation_database=DEFAULT/*!*/;
 BEGIN
 /*!*/;
 # at 195
-#140612  6:22:13 server id 1  end_log_pos 302 CRC32 0xc642d4a1  Query   thread_id=9 exec_time=0 error_code=0
+#140612  6:22:13 server id 1  end_log_pos 302 CRC32 0xc642d4a1 	Query	thread_id=9	exec_time=0	error_code=0
 SET TIMESTAMP=1402554133/*!*/;
 create temporary table test.t (t int)
 /*!*/;
 # at 302
-#140612  6:22:17 server id 1  end_log_pos 400 CRC32 0x076861c4  Query   thread_id=9 exec_time=0 error_code=0
+#140612  6:22:17 server id 1  end_log_pos 400 CRC32 0x076861c4 	Query	thread_id=9	exec_time=0	error_code=0
 SET TIMESTAMP=1402554137/*!*/;
 insert into test.t values(4)
 /*!*/;
 # at 400
-#140612  6:22:21 server id 1  end_log_pos 509 CRC32 0x2e43db50  Query   thread_id=9 exec_time=0 error_code=0
+#140612  6:22:21 server id 1  end_log_pos 509 CRC32 0x2e43db50 	Query	thread_id=9	exec_time=0	error_code=0
 SET TIMESTAMP=1402554141/*!*/;
 insert into test.a select t from test.t
 /*!*/;
 # at 509
-#140612  6:22:24 server id 1  end_log_pos 580 CRC32 0xdefa8f3d  Query   thread_id=9 exec_time=0 error_code=0
+#140612  6:22:24 server id 1  end_log_pos 580 CRC32 0xdefa8f3d 	Query	thread_id=9	exec_time=0	error_code=0
 SET TIMESTAMP=1402554144/*!*/;
 ROLLBACK
 /*!*/;
@@ -1568,10 +1843,10 @@ Bye
 /*!50003 SET @OLD_COMPLETION_TYPE=@@COMPLETION_TYPE,COMPLETION_TYPE=0*/;
 DELIMITER /*!*/;
 # at 4
-#140612  6:45:24 server id 1  end_log_pos 120 CRC32 0x0ad8e5a0  Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:45:24
+#140612  6:45:24 server id 1  end_log_pos 120 CRC32 0x0ad8e5a0 	Start: binlog v 4, server v 5.6.17-debug-log created 140612  6:45:24
 # Warning: this binlog is either in use or was not closed properly.
 # at 120
-#140612  6:45:58 server id 1  end_log_pos 195 CRC32 0x59b581d0  Query   thread_id=14    exec_time=0 error_code=0
+#140612  6:45:58 server id 1  end_log_pos 195 CRC32 0x59b581d0 	Query	thread_id=14	exec_time=0	error_code=0
 SET TIMESTAMP=1402555558/*!*/;
 SET @@session.pseudo_thread_id=14/*!*/;
 SET @@session.foreign_key_checks=1, @@session.sql_auto_is_null=0, @@session.unique_checks=1, @@session.autocommit=1/*!*/;
@@ -1584,40 +1859,40 @@ SET @@session.collation_database=DEFAULT/*!*/;
 BEGIN
 /*!*/;
 # at 195
-#140612  6:45:58 server id 1  end_log_pos 301 CRC32 0x274004b9  Query   thread_id=14    exec_time=0 error_code=0
+#140612  6:45:58 server id 1  end_log_pos 301 CRC32 0x274004b9 	Query	thread_id=14	exec_time=0	error_code=0
 SET TIMESTAMP=1402555558/*!*/;
 create temporary table test.t(t int)
 /*!*/;
 # at 301
-#140612  6:46:54 server id 1  end_log_pos 370 CRC32 0x9f2ca921  Query   thread_id=14    exec_time=0 error_code=0
+#140612  6:46:54 server id 1  end_log_pos 370 CRC32 0x9f2ca921 	Query	thread_id=14	exec_time=0	error_code=0
 SET TIMESTAMP=1402555614/*!*/;
 COMMIT
 /*!*/;
 # at 370
-#140612  6:46:17 server id 1  end_log_pos 445 CRC32 0x3f1094c3  Query   thread_id=16    exec_time=0 error_code=0
+#140612  6:46:17 server id 1  end_log_pos 445 CRC32 0x3f1094c3 	Query	thread_id=16	exec_time=0	error_code=0
 SET TIMESTAMP=1402555577/*!*/;
 SET @@session.pseudo_thread_id=16/*!*/;
 BEGIN
 /*!*/;
 # at 445
-#140612  6:46:17 server id 1  end_log_pos 551 CRC32 0x754cae85  Query   thread_id=16    exec_time=0 error_code=0
+#140612  6:46:17 server id 1  end_log_pos 551 CRC32 0x754cae85 	Query	thread_id=16	exec_time=0	error_code=0
 SET TIMESTAMP=1402555577/*!*/;
 create temporary table test.t(t int)
 /*!*/;
 # at 551
-#140612  6:46:58 server id 1  end_log_pos 620 CRC32 0x73eb6f5a  Query   thread_id=16    exec_time=0 error_code=0
+#140612  6:46:58 server id 1  end_log_pos 620 CRC32 0x73eb6f5a 	Query	thread_id=16	exec_time=0	error_code=0
 SET TIMESTAMP=1402555618/*!*/;
 COMMIT
 /*!*/;
 # at 620
-#140612  6:47:22 server id 1  end_log_pos 733 CRC32 0xb4c3b1c0  Query   thread_id=14    exec_time=0 error_code=0
+#140612  6:47:22 server id 1  end_log_pos 733 CRC32 0xb4c3b1c0 	Query	thread_id=14	exec_time=0	error_code=0
 use `test`/*!*/;
 SET TIMESTAMP=1402555642/*!*/;
 SET @@session.pseudo_thread_id=14/*!*/;
 DROP /*!40005 TEMPORARY */ TABLE IF EXISTS `t`
 /*!*/;
 # at 733
-#140612  6:47:38 server id 1  end_log_pos 846 CRC32 0x1287fb24  Query   thread_id=16    exec_time=0 error_code=0
+#140612  6:47:38 server id 1  end_log_pos 846 CRC32 0x1287fb24 	Query	thread_id=16	exec_time=0	error_code=0
 SET TIMESTAMP=1402555658/*!*/;
 SET @@session.pseudo_thread_id=16/*!*/;
 DROP /*!40005 TEMPORARY */ TABLE IF EXISTS `t`
@@ -1732,10 +2007,10 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
     
     <item>
       <title>PREVIOUS_GTIDS_LOG_EVENT的格式</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-previous_gtids_log_event</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-PREVIOUS_GTIDS_LOG_EVENT</link>
       <pubDate>Thu, 17 Apr 2014 22:08:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-previous_gtids_log_event</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-17-PREVIOUS_GTIDS_LOG_EVENT</guid>
       <description>&lt;p&gt;并没找到特别好的对&lt;code&gt;PREVIOUS_GTIDS_LOG_EVENT&lt;/code&gt;格式的描述, 自己写一个&lt;/p&gt;
 
 &lt;p&gt;据下面这个例子, 是&lt;code&gt;mysqlbinlog&lt;/code&gt;的分析结果&lt;/p&gt;
@@ -1771,10 +2046,10 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;层次&lt;/td&gt;
-&lt;td&gt;字节数&lt;/td&gt;
-&lt;td&gt;含义&lt;/td&gt;
-&lt;td&gt;例子中的数值&lt;/td&gt;
+&lt;th&gt;层次&lt;/th&gt;
+&lt;th&gt;字节数&lt;/th&gt;
+&lt;th&gt;含义&lt;/th&gt;
+&lt;th&gt;例子中的数值&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 
@@ -1855,10 +2130,10 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
     
     <item>
       <title>MDL_map_partition中对锁的过渡</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-mdl_map_partition-lock-split</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-MDL_map_partition-lock-split</link>
       <pubDate>Sat, 05 Apr 2014 11:43:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-mdl_map_partition-lock-split</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-05-MDL_map_partition-lock-split</guid>
       <description>
 
 &lt;p&gt;在&lt;code&gt;MDL&lt;/code&gt;源码中有一段&lt;code&gt;MDL_map_partition&lt;/code&gt;中对锁的过渡有点意思, 拿出来分析一下&lt;/p&gt;
@@ -1938,8 +2213,8 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;分析里的概念&lt;/td&gt;
-&lt;td&gt;Mysql的变量&lt;/td&gt;
+&lt;th&gt;分析里的概念&lt;/th&gt;
+&lt;th&gt;Mysql的变量&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 
@@ -1972,10 +2247,10 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
     
     <item>
       <title>整理一下最近读的MDL源码</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-mdl</link>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-MDL</link>
       <pubDate>Fri, 04 Apr 2014 20:00:00 UTC</pubDate>
       
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-mdl</guid>
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-04-MDL</guid>
       <description>
 
 &lt;p&gt;以下都是个人理解, 如有疏漏请斧正
@@ -2234,9 +2509,9 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
 &lt;table&gt;
 &lt;thead&gt;
 &lt;tr&gt;
-&lt;td&gt;master&lt;/td&gt;
-&lt;td&gt;slave client 1&lt;/td&gt;
-&lt;td&gt;slave client 2&lt;/td&gt;
+&lt;th&gt;master&lt;/th&gt;
+&lt;th&gt;slave client 1&lt;/th&gt;
+&lt;th&gt;slave client 2&lt;/th&gt;
 &lt;/tr&gt;
 &lt;/thead&gt;
 
@@ -2656,50 +2931,6 @@ void ha_reset_slave(THD *thd);
 &lt;p&gt;可以看到Mysql plugin不&lt;strong&gt;太&lt;/strong&gt;预留接口, 是仅仅为已知应用场景提供必要接口, 比如&lt;code&gt;Binlog_relay_IO_observer&lt;/code&gt;中有&lt;code&gt;after&lt;/code&gt;不一定有&lt;code&gt;before&lt;/code&gt;. 比较容易控制插件质量, 但插件能做到的非常局限.&lt;/p&gt;
 
 &lt;p&gt;以上各种尝试, 归根到底, 只要修改Mysql的一点源码编译一下就可以达到很好的效果, 不需要用插件的方式在Mysql中到处找功能插槽, 但通用性变差.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>编译mysql插件的碰到的问题</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-01-28-compile-mysql-plugin</link>
-      <pubDate>Tue, 28 Jan 2014 16:48:00 UTC</pubDate>
-      
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-01-28-compile-mysql-plugin</guid>
-      <description>&lt;p&gt;最近尝试制作了&lt;a href=&#34;https://github.com/ikarishinjieva/mysql_plugin-binlog_dump_list&#34;&gt;一个mysql的插件&lt;/a&gt;. 对c/c++的编译不熟, 又是第一次尝试做mysql插件, 编译过程中碰到些状况&lt;/p&gt;
-
-&lt;p&gt;编写好mysql插件后, 编译成功, 在mysql中安装运行报错: 取了&lt;code&gt;threads&lt;/code&gt;中的THD, 其中THD-&amp;gt;thread_id值为空&lt;/p&gt;
-
-&lt;p&gt;由于是mysql内置的数据结构, 一时没了头绪, 只能通过gdb连上去看看&lt;/p&gt;
-
-&lt;p&gt;发现plugin打印出来的thread_id距离THD开头的距离为&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;tmp=0x3661f80
-&amp;amp;tmp-&amp;gt;thread_id=0x36637b0
-delta = 0x1830
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;而gdb打印出来的距离为&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;(gdb) p tmp
-$1 = (THD *) 0x3661f80
-(gdb) p &amp;amp;tmp-&amp;gt;thread_id
-$2 = (my_thread_id *) 0x3663878
-delta = 0x18F8
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;结论很显然, plugin编译的THD结构和mysqld的THD结构不匹配, 即plugin的编译参数和mysqld的编译参数不一样.&lt;/p&gt;
-
-&lt;p&gt;当然mysql的文档上只会说一句大意是 &amp;ldquo;&lt;strong&gt;编译参数应当设置成一样的&lt;/strong&gt;&amp;ldquo;的话&lt;/p&gt;
-
-&lt;p&gt;其中比较重要的几个编译选项&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;DBUG_ON&lt;/li&gt;
-&lt;li&gt;SAFE_MUTEX&lt;/li&gt;
-&lt;li&gt;DBUG_OFF (不设置DBUG_ON并不等于DBUG_OFF)&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;这几个选项会影响当使用mysqld内部数据结构的长度, 不排除还有其他&lt;/p&gt;
 </description>
     </item>
     
