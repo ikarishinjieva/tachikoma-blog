@@ -73,17 +73,19 @@ document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3
         <li><a href="tags/replication">replication</a> </li>
       
     </ul></span>
-      <p>之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">可能1</a>和<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/">可能2</a>)</p>
+      
+
+<p>之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">可能1</a>和<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/">可能2</a>)</p>
 
 <p>但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.</p>
 
-<p>###结论</p>
+<h3 id="toc_0">结论</h3>
 
 <p>先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生<code>ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</code>错误, 而如果强行<code>start slave</code>, 会永久丢失一个事务, 导致主从数据不一致.</p>
 
 <p>这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了<code>master_auto_position</code>来建立复制, 那建议升级到Mysql 5.6.21.</p>
 
-<p>###如何重现</p>
+<h3 id="toc_1">如何重现</h3>
 
 <p>先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):</p>
 
@@ -164,7 +166,7 @@ start slave;
 
 <p>在Mysql 5.6.<sup>19</sup>&frasl;<sub>5</sub>.6.20上都能成功重现.</p>
 
-<p>###Bug分析</p>
+<h3 id="toc_2">Bug分析</h3>
 
 <p>重现这个bug需要具备以下前提条件:</p>
 
@@ -301,7 +303,7 @@ BEGIN;
 
 <p>在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.</p>
 
-<p>###Mysql 5.6.21的修复</p>
+<h3 id="toc_3">Mysql 5.6.21的修复</h3>
 
 <p>之前我们提到了: GTID event将当前线程的<code>GTID_NEXT</code>值重置, 但<strong>并不会回滚事务</strong></p>
 

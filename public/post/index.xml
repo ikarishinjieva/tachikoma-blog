@@ -15,17 +15,19 @@
       <pubDate>Thu, 13 Nov 2014 19:44:00 UTC</pubDate>
       
       <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-11-13-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-3</guid>
-      <description>&lt;p&gt;之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;可能1&lt;/a&gt;和&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/&#34;&gt;可能2&lt;/a&gt;)&lt;/p&gt;
+      <description>
+
+&lt;p&gt;之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;可能1&lt;/a&gt;和&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/&#34;&gt;可能2&lt;/a&gt;)&lt;/p&gt;
 
 &lt;p&gt;但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.&lt;/p&gt;
 
-&lt;p&gt;###结论&lt;/p&gt;
+&lt;h3 id=&#34;toc_0&#34;&gt;结论&lt;/h3&gt;
 
 &lt;p&gt;先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;错误, 而如果强行&lt;code&gt;start slave&lt;/code&gt;, 会永久丢失一个事务, 导致主从数据不一致.&lt;/p&gt;
 
 &lt;p&gt;这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了&lt;code&gt;master_auto_position&lt;/code&gt;来建立复制, 那建议升级到Mysql 5.6.21.&lt;/p&gt;
 
-&lt;p&gt;###如何重现&lt;/p&gt;
+&lt;h3 id=&#34;toc_1&#34;&gt;如何重现&lt;/h3&gt;
 
 &lt;p&gt;先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):&lt;/p&gt;
 
@@ -106,7 +108,7 @@ start slave;
 
 &lt;p&gt;在Mysql 5.6.&lt;sup&gt;19&lt;/sup&gt;&amp;frasl;&lt;sub&gt;5&lt;/sub&gt;.6.20上都能成功重现.&lt;/p&gt;
 
-&lt;p&gt;###Bug分析&lt;/p&gt;
+&lt;h3 id=&#34;toc_2&#34;&gt;Bug分析&lt;/h3&gt;
 
 &lt;p&gt;重现这个bug需要具备以下前提条件:&lt;/p&gt;
 
@@ -243,7 +245,7 @@ BEGIN;
 
 &lt;p&gt;在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.&lt;/p&gt;
 
-&lt;p&gt;###Mysql 5.6.21的修复&lt;/p&gt;
+&lt;h3 id=&#34;toc_3&#34;&gt;Mysql 5.6.21的修复&lt;/h3&gt;
 
 &lt;p&gt;之前我们提到了: GTID event将当前线程的&lt;code&gt;GTID_NEXT&lt;/code&gt;值重置, 但&lt;strong&gt;并不会回滚事务&lt;/strong&gt;&lt;/p&gt;
 

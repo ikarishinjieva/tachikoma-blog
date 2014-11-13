@@ -10,13 +10,13 @@ tags = [ "mysql", "bug", "replication"]
 但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.
 
 
-###结论
+### 结论
 
 先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生`ER_GTID_NEXT_TYPE_UNDEFINED_GROUP`错误, 而如果强行`start slave`, 会永久丢失一个事务, 导致主从数据不一致.
 
 这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了`master_auto_position`来建立复制, 那建议升级到Mysql 5.6.21.
 
-###如何重现
+### 如何重现
 
 先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):
 
@@ -95,7 +95,7 @@ tags = [ "mysql", "bug", "replication"]
 
 在Mysql 5.6.19/5.6.20上都能成功重现.
 
-###Bug分析
+### Bug分析
 
 重现这个bug需要具备以下前提条件:
 
@@ -218,7 +218,7 @@ sql线程是这样执行的:
     
 在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.
 
-###Mysql 5.6.21的修复
+### Mysql 5.6.21的修复
 
 之前我们提到了: GTID event将当前线程的`GTID_NEXT`值重置, 但**并不会回滚事务**
 
@@ -255,6 +255,3 @@ sql线程是这样执行的:
     }
     
 其中`gtid_rollback`是在之前版本中就有, 是用来回滚GTID信息的. 而`if (thd->transaction.all.ha_list)`中的是Mysql 5.6.21的修复部分.
-
-    
-
