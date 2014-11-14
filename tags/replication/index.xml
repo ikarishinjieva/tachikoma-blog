@@ -287,6 +287,325 @@ if (thd-&amp;gt;owned_gtid.sidno)
     </item>
     
     <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</link>
+      <pubDate>Wed, 17 Sep 2014 09:33:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP-2</guid>
+      <description>
+
+&lt;p&gt;之前&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;讨论&lt;/a&gt;过Mysql出现以下错误的一种可能:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;下面描述的另一种可能来自于taobao的&lt;a href=&#34;http://mysql.taobao.org/index.php/MySQL内核月报_2014.09&#34;&gt;Mysql内核月报&lt;/a&gt;. 主要涉及到&lt;code&gt;insert delayed&lt;/code&gt;语句.&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_0&#34;&gt;关于&lt;code&gt;insert delayed&lt;/code&gt;&lt;/h3&gt;
+
+&lt;p&gt;下面是关于&lt;code&gt;insert delayed&lt;/code&gt;的几个描述:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;insert delayed&lt;/code&gt;对客户端立刻返回, 而将实际数据任务排队到合适的时候才进行.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;insert delayed&lt;/code&gt;仅支持MyISAM表, 且在Mysql 5.6.6及以后deprecate, 但在目前Mysql 5.6.20中仍可使用.&lt;/li&gt;
+&lt;li&gt;对于Mixed和Row格式的binlog, &lt;code&gt;insert delayed&lt;/code&gt;将使用Row格式. 而对于Statement格式, &lt;code&gt;insert delayed&lt;/code&gt;将退化成普通的&lt;code&gt;insert&lt;/code&gt;语句. (&lt;code&gt;sql_insert.cc:upgrade_lock_type&lt;/code&gt;)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_1&#34;&gt;bug描述&lt;/h3&gt;
+
+&lt;p&gt;在master上执行以下脚本, 可以在slave上看到复制的error:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &amp;quot;CREATE TABLE a (a int) ENGINE=MyISAM&amp;quot;
+
+for i in {1..2}
+do
+/opt/mysql/bin/mysql -uroot -h127.0.0.1 -e &amp;quot;insert delayed into test.a values(1)&amp;quot; &amp;amp;
+done
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;toc_2&#34;&gt;分析&lt;/h3&gt;
+
+&lt;p&gt;&lt;code&gt;insert delayed&lt;/code&gt;的执行可以看做分为两个部分: 生产者和消费者.&lt;/p&gt;
+
+&lt;p&gt;同时执行的两个&lt;code&gt;insert delayed&lt;/code&gt;, 会触发两个生产者线程将两次执行排队到队列中, 等待消费者进行消费&lt;/p&gt;
+
+&lt;p&gt;消费者线程的大概流程是:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;handle_delayed_insert
+     Delayed_insert::handle_inserts
+          while(row = rows.get()) {
+               write binlog
+               write table
+          }
+     trans_commit_stmt
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;其形成的binlog形式是:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;GTID_DESC
+BEGIN
+row_event 1
+row_event 2
+COMMIT
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这段binlog在slave上重放时, row_event 1结束后会进行commit, 对GTID执行&lt;code&gt;set_undefined&lt;/code&gt; (如果不理解这一段, 请参看&lt;a href=&#34;http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/&#34;&gt;之前的讨论&lt;/a&gt;)&lt;/p&gt;
+
+&lt;p&gt;执行row_event 2时就找不到GTID的描述, 故error&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_3&#34;&gt;何时commit&lt;/h3&gt;
+
+&lt;p&gt;上面的分析有一部分是有点奇怪的, 就是``row_event 1结束后会进行commit&amp;rdquo;.&lt;/p&gt;
+
+&lt;p&gt;对比另外一个场景, 如果进行一个大的insert, 比如&lt;code&gt;insert into a values(1),(2),(3),...,(100000)&lt;/code&gt;, 形成的binlog形式与上面一模一样, 但仅在最后一个row_event时进行commit&lt;/p&gt;
+
+&lt;p&gt;造成这种差异的原因在于标识&lt;code&gt;STMT_END_F&lt;/code&gt;,  在bug的场景中,  两个row_event都带有标识&lt;code&gt;STMT_END_F&lt;/code&gt;, 故会在每个row_event执行后进行commit&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_4&#34;&gt;复盘&lt;/h3&gt;
+
+&lt;p&gt;这个bug主要的成因是两个并行&lt;code&gt;insert delayed&lt;/code&gt;会组合在一起向master提交, 且提交成功. 而根据binlog, slave执行时会进行两次commit, 但共用了同一个GTID_DESC, 所以会发生错误.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
+      <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</link>
+      <pubDate>Fri, 05 Sep 2014 22:00:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</guid>
+      <description>
+
+&lt;p&gt;最近Mysql slave发生了一次下面的错误:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;When @@SESSION.GTID_NEXT is set to a GTID, you must explicitly set it to a different value after a COMMIT or ROLLBACK
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;因为没留下现场, 分析起来很困难. 从mysql bug库中刨出了一个类似的&lt;a href=&#34;http://bugs.mysql.com/bug.php?id=68525&#34;&gt;bug 68525&lt;/a&gt;, 分析了这个bug的成因.&lt;/p&gt;
+
+&lt;p&gt;BTW, 不幸的是分析完后觉得与之前碰到场景不一致.&lt;/p&gt;
+
+&lt;p&gt;下面将介绍这个bug的成因.&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_0&#34;&gt;bug描述&lt;/h3&gt;
+
+&lt;p&gt;重现这个bug需满足下面的条件:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;relay-log-info-repository = TABLE&lt;/li&gt;
+&lt;li&gt;gtid-mode = on&lt;/li&gt;
+&lt;li&gt;binlog-format = ROW&lt;/li&gt;
+&lt;li&gt;max_binlog_size 足够小, 我设置为 4096&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;用下面的脚本在master上创建&lt;strong&gt;myisam&lt;/strong&gt;表并灌数据, slave上就会出现&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;CREATE TABLE `item` (`id` int(11) NOT NULL AUTO_INCREMENT,`item` varchar(10), PRIMARY KEY (`id`)) ENGINE=myisam DEFAULT CHARSET=utf8 COLLATE=utf8_czech_ci;
+
+insert into item(item) values (&#39;test1&#39;) ;
+
+insert into item(item) values (&#39;test2&#39;) ;
+
+insert into item(item) values (&#39;test3&#39;) ;
+
+insert into item(item) values (&#39;test4&#39;) ;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+insert into item(item) select item from item;
+
+#最后一组数据是1024行
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;普遍的解决方法是在slave上&lt;code&gt;stop slave; start slave&lt;/code&gt;就可以从这个错误中恢复, 但注意此时master和slave上数据是&lt;strong&gt;不一致&lt;/strong&gt;的&lt;/p&gt;
+
+&lt;h3 id=&#34;toc_1&#34;&gt;row event的拆分&lt;/h3&gt;
+
+&lt;p&gt;进行更进一步的描述前, 先需要理解row event的拆分:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;在master端, 当row event的大小超过&lt;code&gt;binlog-row-event-max-size&lt;/code&gt;时, 会使用一个新的row event.  &lt;code&gt;binlog-row-event-max-size&lt;/code&gt;默认大小为8k, 即如果更新1000行, 会被拆成若干个8k的row event&lt;/li&gt;
+&lt;li&gt;在master端, 无论&lt;code&gt;max_binlog_size&lt;/code&gt;多小, 一次提交的row event都会存放在同一个binlog中, 即如果更新1000行, 所有的row event都会放在同一个binlog中 (即使更新的是myisam表)&lt;/li&gt;
+&lt;li&gt;在slave端, relay log以event为单位接受master发送的binlog, 如果当前relay log大小超过&lt;code&gt;max_relay_log_size&lt;/code&gt;, relay log进行轮换. 即之前的1000行更新在slave端会被&lt;strong&gt;拆分&lt;/strong&gt;到若干个relay log中. 本例中&lt;code&gt;max_relay_log_size = 0&lt;/code&gt;, relay log的大小限制同&lt;code&gt;max_binlog_size&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_2&#34;&gt;错误发生在何处&lt;/h3&gt;
+
+&lt;p&gt;理解了row event会被拆分到多个relay log中, 那从relay log的角度:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;===
+# relay-log.000001
+GTID_desc event
+BEGIN event
+row_event 0
+row_event 1
+...
+row_event x
+ROTATE event
+===
+# relay-log.000002
+Format_description_event
+Previous-GTIDs
+...
+# &amp;lt;-- 错误发生在此处!
+row_event x+1
+...
+COMMIT event
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;错误发生在新的relay-log执行第x+1个row_event之前, 发生错误时可以看到slave的&lt;code&gt;executed_gtid&lt;/code&gt;已经按照GTID_desc event的描述更新了, 这意味着两件事情:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;可能在relay-log轮换时发生了commit, 导致还未执行完的更新(只执行到了row_event x)将其gtid刷到了&lt;code&gt;executed_gtid&lt;/code&gt;中,  这可能是bug发生的原因.&lt;/li&gt;
+&lt;li&gt;如果此时执行&lt;code&gt;stop slave; start slave&lt;/code&gt;, 那么整个更新将被跳过, &lt;strong&gt;这就是为什么可以从错误中恢复&lt;/strong&gt;. 但&lt;code&gt;row_event x&lt;/code&gt;以后的更新将丢失, &lt;strong&gt;造成数据不一致&lt;/strong&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_3&#34;&gt;为什么会抛出错误&lt;/h3&gt;
+
+&lt;p&gt;检查一下&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;的抛出处&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;gtid_pre_statement_checks {
+     …
+     if (UNDEFINED_GROUP == gtid_next-&amp;gt;type) {
+          my_error(ER_GTID_NEXT_TYPE_UNDEFINED_GROUP, MYF(0), buf);
+     }
+     …
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;那设置&lt;code&gt;gtid_next-&amp;gt;type = UNDEFINED_GROUP&lt;/code&gt;的地方在&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;set_undefined() {
+     if (type == GTID_GROUP)
+          type= UNDEFINED_GROUP;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;code&gt;set_undefined&lt;/code&gt;被很多逻辑分支调用, 都是Mysql确定当前Gtid被使用完毕或者需要抛弃时被调用, 比如commit和rollback时.&lt;/p&gt;
+
+&lt;p&gt;那如之前的猜想, 在relay log 轮换时发生了commit, 就会&lt;code&gt;set_undefined&lt;/code&gt;, &lt;code&gt;row_event x+1&lt;/code&gt;执行前的检查就会抛出&lt;code&gt;ER_GTID_NEXT_TYPE_UNDEFINED_GROUP&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;用断点追踪一下也应正了这个猜想:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;#0  Gtid_specification::set_undefined (this=0x7f8e940011b8) at /opt/mysql-src-5.6.19/sql/rpl_gtid.h:2413
+#1  0x0000000000a0a9ed in Gtid_state::update_on_flush (this=0x2c14310, thd=0x7f8e940008c0)
+    at /opt/mysql-src-5.6.19/sql/rpl_gtid_state.cc:170
+#2  0x0000000000a4788d in MYSQL_BIN_LOG::write_cache (this=0x1826c00, thd=0x7f8e940008c0,
+    cache_data=0x7f8e94035b40) at /opt/mysql-src-5.6.19/sql/binlog.cc:5799
+#3  0x0000000000a3b803 in binlog_cache_data::flush (this=0x7f8e94035b40, thd=0x7f8e940008c0,
+    bytes_written=0x7f8ed5d9f0b0, wrote_xid=0x7f8ed5d9f107) at /opt/mysql-src-5.6.19/sql/binlog.cc:1227
+#4  0x0000000000a5088d in binlog_cache_mngr::flush (this=0x7f8e94035b40, thd=0x7f8e940008c0,
+    bytes_written=0x7f8ed5d9f108, wrote_xid=0x7f8ed5d9f107) at /opt/mysql-src-5.6.19/sql/binlog.cc:774
+#5  0x0000000000a48f46 in MYSQL_BIN_LOG::flush_thread_caches (this=0x1826c00, thd=0x7f8e940008c0)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6368
+#6  0x0000000000a49195 in MYSQL_BIN_LOG::process_flush_stage_queue (this=0x1826c00,
+    total_bytes_var=0x7f8ed5d9f280, rotate_var=0x7f8ed5d9f27f, out_queue_var=0x7f8ed5d9f270)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6424
+#7  0x0000000000a49eb7 in MYSQL_BIN_LOG::ordered_commit (this=0x1826c00, thd=0x7f8e940008c0, all=false,
+    skip_commit=false) at /opt/mysql-src-5.6.19/sql/binlog.cc:6841
+#8  0x0000000000a48e6a in MYSQL_BIN_LOG::commit (this=0x1826c00, thd=0x7f8e940008c0, all=false)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:6335
+#9  0x0000000000644bdb in ha_commit_trans (thd=0x7f8e940008c0, all=false, ignore_global_read_lock=true)
+    at /opt/mysql-src-5.6.19/sql/handler.cc:1436
+#10 0x0000000000a9214d in Rpl_info_table_access::close_table (this=0x32c1b20, thd=0x7f8e940008c0,
+    table=0x3371800, backup=0x7f8ed5da0520, error=false) at /opt/mysql-src-5.6.19/sql/rpl_info_table_access.cc:163
+#11 0x0000000000a9075f in Rpl_info_table::do_flush_info (this=0x32c1ba0, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_info_table.cc:238
+#12 0x0000000000a7def4 in Rpl_info_handler::flush_info (this=0x32c1ba0, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_info_handler.h:92
+#13 0x0000000000a842c9 in Relay_log_info::flush_info (this=0x3355240, force=true)
+    at /opt/mysql-src-5.6.19/sql/rpl_rli.cc:2028
+#14 0x0000000000a42871 in MYSQL_BIN_LOG::purge_first_log (this=0x3355980, rli=0x3355240, included=false)
+    at /opt/mysql-src-5.6.19/sql/binlog.cc:3966
+#15 0x0000000000a7805d in next_event (rli=0x3355240) at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:7362
+#16 0x0000000000a6dd60 in exec_relay_log_event (thd=0x7f8e940008c0, rli=0x3355240)
+    at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:3814
+#17 0x0000000000a73646 in handle_slave_sql (arg=0x2c197b0) at /opt/mysql-src-5.6.19/sql/rpl_slave.cc:5708
+#18 0x0000000000e1e0b1 in pfs_spawn_thread (arg=0x7f8eb0050080)
+    at /opt/mysql-src-5.6.19/storage/perfschema/pfs.cc:1860
+#19 0x00007f8f03ef89d1 in start_thread () from /lib64/libpthread.so.0
+#20 0x00007f8f02e62b5d in clone () from /lib64/libc.so.6
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;可以看到:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;relay log进行轮换时&lt;code&gt;purge_first_log&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Rpl_info_table需要进行&lt;code&gt;flush_info&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;导致了进行完整提交(&lt;code&gt;ordered_commit&lt;/code&gt;), 此时会&lt;code&gt;set_undefined&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_4&#34;&gt;为什么relay log轮换会触发完整提交&lt;/h3&gt;
+
+&lt;p&gt;下面代码来自&lt;code&gt;MYSQL_BIN_LOG::commit&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;  if (stuff_logged)
+  {
+    if (ordered_commit(thd, all))
+      DBUG_RETURN(RESULT_INCONSISTENT);
+  }
+  else
+  {
+    if (ha_commit_low(thd, all))
+      DBUG_RETURN(RESULT_INCONSISTENT);
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;提交&lt;code&gt;Rpl_info_table&lt;/code&gt;时, 如果真的有&amp;rdquo;货&amp;rdquo;要提交(&lt;code&gt;stuff_logged&lt;/code&gt;), 就会用&lt;code&gt;ordered_commit&lt;/code&gt;做完整提交(包括&lt;code&gt;set_undefined&lt;/code&gt;); 否则, 用&lt;code&gt;ha_commit_low&lt;/code&gt;仅做innodb层的提交.&lt;/p&gt;
+
+&lt;p&gt;所谓有&amp;rdquo;货&amp;rdquo;要提交, mysql源码的注释为:&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;We commit the transaction if:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;We are not in a transaction and committing a statement, or&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;We are in a transaction and a full transaction is committed.&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Otherwise, we accumulate the changes.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;那么:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;当前这个bug满足第一种情况&lt;/li&gt;
+&lt;li&gt;第二种情况解释了为什么使用innodb表时不会出现这个bug.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id=&#34;toc_5&#34;&gt;最后&lt;/h3&gt;
+
+&lt;p&gt;最后验证一下&lt;code&gt;relay-log-info-repository=FILE&lt;/code&gt;时不会触发这个bug的.&lt;/p&gt;
+
+&lt;p&gt;复盘一下:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;同一个commit的多个row event会被拆分到不同的relay log中.&lt;/li&gt;
+&lt;li&gt;使用&lt;code&gt;relay-log-info-repository=TABLE&lt;/code&gt;时, 轮换relay log会触发commit.&lt;/li&gt;
+&lt;li&gt;由于是myisam表, 则触发了一个完整commit (&lt;code&gt;ordered_commit&lt;/code&gt;). 会重置gtid状态为undefined.&lt;/li&gt;
+&lt;li&gt;下一个relay log执行时, 发现gtid状态异常报错.&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;stop slave; start slave&lt;/code&gt;后, 由于gtid已经更新, 整个commit会被跳过, 造成数据丢失.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;简单地说就是&lt;code&gt;relay-log-info-repository=TABLE&lt;/code&gt;的交易性和myisam的非交易性在轮换relay log时的冲突.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>测试Mysql临时表的复制</title>
       <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-06-12-temporary-table-replication</link>
       <pubDate>Thu, 12 Jun 2014 22:32:00 UTC</pubDate>
