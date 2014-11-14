@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+<head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title> Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第三种可能 &middot; Tachikoma blog </title>
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/poole.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/syntax.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/hyde.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/tachikoma.css">
+  <link rel="stylesheet" href="http://fonts.useso.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+
+  
+  <link href="" rel="alternate" type="application/rss+xml" title="Tachikoma blog" />
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/highlight-rainbow.css">
+  <script src="http://ikarishinjieva.github.io/tachikoma-blog/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
+</head>
+
+<body>
+
+<div style="position: fixed;bottom: 0px;right:0px;">
+<img src="http://ikarishinjieva.github.io/tachikoma-blog/tachikoma.gif" style="opacity:0.7; filter:alpha(opacity=70);"/>
+</div>
+<div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      <h2 style="color:rgba(255,255,255,.5)">Tachikoma blog</h2>
+      <p class="lead">
+        <a href="mailto:tac.nil@outlook.com">Email</a> |
+        <a href="http://weibo.com/u/1460219211">Weibo</a> |
+        <a href="https://github.com/ikarishinjieva">Github</a>
+      </p>
+    </div>
+<hr>
+    <ul class="sidebar-nav">
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/">Home</a> </li>
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/tags">Tags</a> </li>
+      
+    </ul>
+
+  </div>
+</div>
+
+<script type="text/javascript">
+var _bdhmProtocol = (("https:" == document.location.protocol) ? " https://" : " http://");
+document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3F4c958230261b97d30128c952acd44fc6' type='text/javascript'%3E%3C/script%3E"));
+</script>
+
+
+<div class="content container">
+<div class="post">
+  <h1>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第三种可能</h1>
+  <span class="post-date">Thu, Nov 13, 2014      
+  	<ul style="float:right; " class="post-tags">
+      
+        <li><a href="tags/mysql">mysql</a> </li>
+      
+        <li><a href="tags/bug">bug</a> </li>
+      
+        <li><a href="tags/replication">replication</a> </li>
+      
+    </ul></span>
+      
+
+<p>之前讨论过两种出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的可能(<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/">可能1</a>和<a href="http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-17-mysql-er_gtid_next_type_undefined_group-2/">可能2</a>)</p>
+
+<p>但都不是之前在线上环境见到的状况, 前几天QA重现了线上的情况, 经过几天的折腾, 终于找到了原因.</p>
+
+<h3 id="toc_0">结论</h3>
+
+<p>先说结论, Mysql 5.6.21以下的Mysql版本会出现这个错误, 导致复制不正常, 发生<code>ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</code>错误, 而如果强行<code>start slave</code>, 会永久丢失一个事务, 导致主从数据不一致.</p>
+
+<p>这个错误的发生概率还是较大的, 如果使用了GTID, 并且使用了<code>master_auto_position</code>来建立复制, 那建议升级到Mysql 5.6.21.</p>
+
+<h3 id="toc_1">如何重现</h3>
+
+<p>先用下面的patch修改Mysql源码, 这段patch用于增加debug点 (如果不想修改源码, 也可用gdb手工模仿):</p>
+
+<pre><code>--- rpl_slave.cc.orig     2014-11-12 16:03:36.000000000 +0800
++++ rpl_slave.cc     2014-11-12 16:05:18.000000000 +0800
+@@ -4378,6 +4378,14 @@
+       THD_STAGE_INFO(thd, stage_queueing_master_event_to_the_relay_log);
+       event_buf= (const char*)mysql-&gt;net.read_pos + 1;
+       DBUG_PRINT(&quot;info&quot;, (&quot;IO thread received event of type %s&quot;, Log_event::get_type_str((Log_event_type)event_buf[EVENT_TYPE_OFFSET])));
++
++      DBUG_EXECUTE_IF(&quot;stop_io_before_reading_xid_log_event&quot;,
++        if (event_buf[EVENT_TYPE_OFFSET] == XID_EVENT) {
++           thd-&gt;killed= THD::KILLED_NO_VALUE;
++           goto err;
++        }
++      );
++
+       if (RUN_HOOK(binlog_relay_io, after_read_event,
+                    (thd, mi,(const char*)mysql-&gt;net.read_pos + 1,
+                     event_len, &amp;event_buf, &amp;event_len)))
+</code></pre>
+
+<p>然后执行下面的mysql-test脚本:</p>
+
+<pre><code>--source include/have_debug.inc
+--source include/have_gtid.inc
+
+--disable_warnings
+--source include/master-slave.inc
+--enable_warnings
+
+--connection master
+create table test.a(a int) engine=innodb;
+flush logs;
+--source include/sync_slave_sql_with_master.inc
+
+--connection slave
+stop slave;
+set global debug=&quot;d,stop_io_before_reading_xid_log_event&quot;;
+
+--connection master
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+
+--connection slave
+start slave io_thread;
+--let $slave_param= Slave_IO_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--connection slave
+set global debug=&quot;&quot;;
+
+start slave;
+--let $slave_param= Slave_SQL_Running
+--let $slave_param_value= No
+--source include/wait_for_slave_param.inc
+
+--let $errno= query_get_value(&quot;SHOW SLAVE STATUS&quot;, &quot;Last_Errno&quot;, 1)
+--if ($errno != &quot;1837&quot;) {
+    --echo Got unexpect errno=$errno
+    --die
+}
+--echo Got Slave SQL error 1837
+
+# Cleanup
+--connection master
+drop table test.a;
+
+--connection slave
+set global debug=&quot;&quot;;
+start slave;
+--source include/sync_slave_sql_with_master.inc
+--source include/rpl_end.inc
+</code></pre>
+
+<p>在Mysql 5.6.<sup>19</sup>&frasl;<sub>5</sub>.6.20上都能成功重现.</p>
+
+<h3 id="toc_2">Bug分析</h3>
+
+<p>重现这个bug需要具备以下前提条件:</p>
+
+<ol>
+<li>Mysql使用GTID</li>
+<li>Mysql复制使用了<code>master_auto_position</code></li>
+</ol>
+
+<p>对重现的每个步骤进行说明:</p>
+
+<hr />
+
+<p>首先需要在Master上进行<code>flush logs</code>, 这样生成的binlog和一般binlog的区别是<code>created</code>段值为0 (<strong>正常的binlog rotate也会产生这个效果</strong>). 关于<code>created</code>在Mysql源码中是如下说明的:</p>
+
+<pre><code>/*
+If this event is at the start of the first binary log since server
+startup 'created' should be the timestamp when the event (and the
+binary log) was created.  In the other case (i.e. this event is at
+the start of a binary log created by FLUSH LOGS or automatic
+rotation), 'created' should be 0.  This &quot;trick&quot; is used by MySQL
+&gt;=4.0.14 slaves to know whether they must drop stale temporary
+tables and whether they should abort unfinished transaction.
+...
+*/
+</code></pre>
+
+<p>额外一提, <code>mysqlbinlog</code>在解析binlog时对<code>created</code>段解析是有问题的, 建议直接使用<code>mysqlbinlog --hexdump</code>来看</p>
+
+<hr />
+
+<p>然后在Slave上设置新加的debug点<code>stop_io_before_reading_xid_log_event</code>, 并开启IO复制线程.</p>
+
+<p>在Master上插入以下事务:</p>
+
+<pre><code>begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+</code></pre>
+
+<p>这样IO复制线程会在commit之前停下来, 假设正在使用relay-log.000001, 那这个relay log中就只含有begin和两个insert</p>
+
+<hr />
+
+<p>接下来去掉debug点,再次开启IO复制线程.</p>
+
+<p>由于Mysql复制使用了<code>master_auto_position</code>(前提条件2), 就会重传整个事务, 得到以下的relay log:</p>
+
+<pre><code>---relay-log.000001
+...
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+ROTATE
+
+--relay-log.000002
+slave FDE (Format_description_event)
+Previous-gtid
+Rotate
+master FDE (created=0)
+Rotate'
+Rotate''
+GTID
+begin;
+insert into test.a values(1);
+insert into test.a values(2);
+commit;
+</code></pre>
+
+<p>两点说明:</p>
+
+<ol>
+<li>如果不使用<code>master_auto_position</code>, 就不会重传整个事务, 而是断点续传</li>
+<li>relay-log.000002开头好几个rotate看起来比较复杂, 可以先忽略这个细节, 对整个bug没有影响
+得到上面的relay-log后, 如果开启sql线程会发生什么呢?</li>
+</ol>
+
+<hr />
+
+<p>如果之前没有将<code>created</code>段置为0的那一步, 一切运行都会是正常的, 原因是在master FDE的处理中:</p>
+
+<pre><code>//Format_description_log_event::do_apply_event
+  /*
+    As a transaction NEVER spans on 2 or more binlogs:
+    if we have an active transaction at this point, the master died
+    while writing the transaction to the binary log, i.e. while
+    flushing the binlog cache to the binlog. XA guarantees that master has
+    rolled back. So we roll back.
+    Note: this event could be sent by the master to inform us of the
+    format of its binlog; in other words maybe it is not at its
+    original place when it comes to us; we'll know this by checking
+    log_pos (&quot;artificial&quot; events have log_pos == 0).
+  */
+  if (!is_artificial_event() &amp;&amp; created &amp;&amp; thd-&gt;transaction.all.ha_list)
+  {
+    /* This is not an error (XA is safe), just an information */
+    rli-&gt;report(INFORMATION_LEVEL, 0,
+                &quot;Rolling back unfinished transaction (no COMMIT &quot;
+                &quot;or ROLLBACK in relay log). A probable cause is that &quot;
+                &quot;the master died while writing the transaction to &quot;
+                &quot;its binary log, thus rolled back too.&quot;); 
+    const_cast&lt;Relay_log_info*&gt;(rli)-&gt;cleanup_context(thd, 1);
+  }
+</code></pre>
+
+<p>如果当前存在事务(<code>thd-&gt;transaction.all.ha_list</code>), 且master FDE标明它是master启动时产生的binlog, 那slave会将当前事务回滚掉(<code>cleanup_context</code>).</p>
+
+<p>如果master在写入binlog时崩溃, master重启后会回滚binlog,那slave也会相应产生回滚.</p>
+
+<p>由于我们之前设置了<code>created</code>为0, 这个机制就不起作用. 之后会发生什么呢?</p>
+
+<hr />
+
+<p>sql线程是这样执行的:</p>
+
+<ol>
+<li>从relay-log.000001往下执行, 进入事务</li>
+<li>发现Rotate, 轮换到relay-log.000002, 但事务并没有结束, 就仿佛一个事务跨了两个relay log(一个事务是可以跨多个relay log)</li>
+<li>master FDE的保护机制由于FDE的<code>created</code>为0而失效, 可以继续执行, 且仍在事务中</li>
+<li>GTID event将当前线程的<code>GTID_NEXT</code>值重置, 但<strong>并不会回滚事务</strong></li>
+<li>BEGIN event会将当前事务提交, 清掉<code>GTID_NEXT</code>, 并开始新的事务</li>
+<li>之后的insert发现<code>GTID_NEXT</code>已经为空, 故报了<code>ER_GTID_NEXT_TYPE_UNDEFINED_GROUP</code>的错误</li>
+</ol>
+
+<hr />
+
+<p>需要说明一下BEGIN event为什么会提交事务. 这也很好理解, 如果执行下面的语句:</p>
+
+<pre><code>BEGIN;
+insert into test.a values(444);
+BEGIN;
+</code></pre>
+
+<p>在Mysql中正常的流程是insert会被隐式提交. 但在执行relay log时, 这样的处理就会导致新的事务丢失了GTID事件.</p>
+
+<h3 id="toc_3">Mysql 5.6.21的修复</h3>
+
+<p>之前我们提到了: GTID event将当前线程的<code>GTID_NEXT</code>值重置, 但<strong>并不会回滚事务</strong></p>
+
+<p>而Mysql 5.6.21进行的修复就是让GTID event进行事务回滚, 代码如下:</p>
+
+<pre><code>//Gtid_log_event::do_apply_event
+if (thd-&gt;owned_gtid.sidno)
+{
+    /*
+      Slave will execute this code if a previous Gtid_log_event was applied
+      but the GTID wasn't consumed yet (the transaction was not committed
+      nor rolled back).
+      On a client session we cannot do consecutive SET GTID_NEXT without
+      a COMMIT or a ROLLBACK in the middle.
+      Applying this event without rolling back the current transaction may
+      lead to problems, as a &quot;BEGIN&quot; event following this GTID will
+      implicitly commit the &quot;partial transaction&quot; and will consume the
+      GTID. If this &quot;partial transaction&quot; was left in the relay log by the
+      IO thread restarting in the middle of a transaction, you could have
+      the partial transaction being logged with the GTID on the slave,
+      causing data corruption on replication.
+    */
+    if (thd-&gt;transaction.all.ha_list)
+    {
+      /* This is not an error (XA is safe), just an information */
+      rli-&gt;report(INFORMATION_LEVEL, 0,
+                  &quot;Rolling back unfinished transaction (no COMMIT &quot;
+                  &quot;or ROLLBACK in relay log). A probable cause is partial &quot;
+                  &quot;transaction left on relay log because of restarting IO &quot;
+                  &quot;thread with auto-positioning protocol.&quot;);
+      const_cast&lt;Relay_log_info*&gt;(rli)-&gt;cleanup_context(thd, 1);
+    }
+    gtid_rollback(thd);
+}
+</code></pre>
+
+<p>其中<code>gtid_rollback</code>是在之前版本中就有, 是用来回滚GTID信息的. 而<code>if (thd-&gt;transaction.all.ha_list)</code>中的是Mysql 5.6.21的修复部分.</p>
+
+</div>
+  <div id="disqus_thread" style="width:450px"></div>
+  <script type="text/javascript">
+       
+      var disqus_shortname = 'tacsay'; 
+
+       
+      (function() {
+          var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+          dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+          (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+      })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+  <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+</div>
+
+  </body>
+</html>
