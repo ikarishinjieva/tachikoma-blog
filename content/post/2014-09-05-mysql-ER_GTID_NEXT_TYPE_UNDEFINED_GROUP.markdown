@@ -2,7 +2,7 @@
 draft = false
 title = "Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的一种可能"
 date = 2014-09-05T22:00:00Z
-tags = [ "mysql", "bug"]
+tags = [ "mysql", "bug", "replication"]
 +++
 
 最近Mysql slave发生了一次下面的错误:

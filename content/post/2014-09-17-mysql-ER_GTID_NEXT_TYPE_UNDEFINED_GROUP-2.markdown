@@ -2,7 +2,7 @@
 draft = false
 title = "Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第二种可能"
 date = 2014-09-17T09:33:00Z
-tags = [ "mysql", "bug"]
+tags = [ "mysql", "bug", "replication"]
 +++
 
 之前[讨论](http://ikarishinjieva.github.io/tachikoma-blog/post/2014-09-05-mysql-er_gtid_next_type_undefined_group/)过Mysql出现以下错误的一种可能:
