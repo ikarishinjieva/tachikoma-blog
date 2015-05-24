@@ -7,7 +7,42 @@
     <language>zh-cn</language>
     
     
-    <updated>Thu, 13 Nov 2014 19:44:00 UTC</updated>
+    <updated>Sun, 24 May 2015 23:51:00 UTC</updated>
+    
+    <item>
+      <title>golang 查询 /proc/self/exe 失败或 Setgroups() 失效</title>
+      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2015-05-24-golang-LockOSThread</link>
+      <pubDate>Sun, 24 May 2015 23:51:00 UTC</pubDate>
+      
+      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2015-05-24-golang-LockOSThread</guid>
+      <description>&lt;p&gt;前一段时间发生了些很奇怪的现象:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;在程序入口的第一句使用&lt;code&gt;Readlink(&amp;quot;/proc/self/exe&amp;quot;)&lt;/code&gt;, 有小概率报出permission denied&lt;/li&gt;
+&lt;li&gt;使用&lt;code&gt;Setgroups()&lt;/code&gt;进行用户组设置, 但之后的操作中随机概率用户组设置会失效&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;这两个问题困扰了蛮久, 第一个问题一直没找到描述问题的合适的关键字, 第二个问题没往系统的方向上想, 而是一直在检查程序逻辑的错误. &lt;code&gt;strace&lt;/code&gt;和coredump也没有提供有用的信息.&lt;/p&gt;
+
+&lt;p&gt;直到有一天晚上一位同事提醒我&lt;code&gt;man proc(5)&lt;/code&gt;中有这样一段话:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;In a multithreaded process, the contents of this symbolic link are not available if the main thread has already terminated (typically by calling pthread_exit(3)).
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;这就通了, 这两个问题都可能由于golang将执行块调度到了另外的线程上引起的.&lt;/p&gt;
+
+&lt;p&gt;在uid/gid相关的man文档里, 相关的描述如下:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;At the kernel level, user IDs and group IDs are a per-thread attribute.
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;解决方法是利用golang的&lt;code&gt;runtime.LockOSThread()&lt;/code&gt;, 使用的形式参看&lt;a href=&#34;https://code.google.com/p/go-wiki/wiki/LockOSThread&#34;&gt;go-wiki&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;还有一个&lt;a href=&#34;https://github.com/golang/go/issues/1435&#34;&gt;相关的issue&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;一开始的思考方向偏了, 没找到正确的问题关键字, 着实浪费了一些时间.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Mysql 出现ER_GTID_NEXT_TYPE_UNDEFINED_GROUP的第三种可能</title>
@@ -2600,87 +2635,6 @@ table_cache 的 value 是 descriptor 的集合, 即 &lt;a href=&#34;http://osxr.
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;发现死锁后, 会调用&lt;code&gt;Deadlock_detection_visitor::opt_change_victim_to&lt;/code&gt;, 其中进行&lt;code&gt;MDL_context&lt;/code&gt;权重比较, 来选取一个作为victim, 此处忽略细节&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>对Mysql bug #70307 的再学习</title>
-      <link>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-01-study-mysql-bug-70307-2</link>
-      <pubDate>Tue, 01 Apr 2014 13:07:00 UTC</pubDate>
-      
-      <guid>http://ikarishinjieva.github.io/tachikoma-blog/post/2014-04-01-study-mysql-bug-70307-2</guid>
-      <description>
-
-&lt;p&gt;之前对bug #70307有过&lt;a href=&#34;http://ikarishinjieva.github.io/blog/blog/2013/10/25/study-mysql-bug-70307/&#34;&gt;学习&lt;/a&gt;, 苦于阿兹海默状态, 又花了半天在mysql 5.5.33上探查这个场景的原因&amp;hellip;&lt;/p&gt;
-
-&lt;p&gt;简单记录一下&lt;/p&gt;
-
-&lt;h2 id=&#34;toc_0&#34;&gt;现象&lt;/h2&gt;
-
-&lt;p&gt;mysql进行主从复制, 从机上&lt;code&gt;FLUSH TABLES WITH READ LOCK&lt;/code&gt;后, 进行&lt;code&gt;STOP SLAVE&lt;/code&gt;, 一定概率下 &lt;code&gt;SHOW SLAVE STATUS&lt;/code&gt;卡住&lt;/p&gt;
-
-&lt;h2 id=&#34;toc_1&#34;&gt;重现步骤&lt;/h2&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;master&lt;/th&gt;
-&lt;th&gt;slave client 1&lt;/th&gt;
-&lt;th&gt;slave client 2&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;STOP SLAVE IO_THREAD&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;CREATE TABLE TEST.TEST &amp;hellip;&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;FLUSH TABLES WITH READ LOCK&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;START SLAVE IO_THREAD&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;STOP SLAVE&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;td&gt;SHOW SLAVE STATUS&lt;/td&gt;
-&lt;td&gt;-&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;其中, &lt;code&gt;START/STOP SLAVE IO_THREAD&lt;/code&gt;是为了在&lt;code&gt;FLUSH TABLES WITH READ LOCK&lt;/code&gt;时造成slave io_thread有未提交数据&lt;/p&gt;
-
-&lt;h2 id=&#34;toc_2&#34;&gt;死锁原因&lt;/h2&gt;
-
-&lt;ol&gt;
-&lt;li&gt;&lt;code&gt;FLUSH TABLES WITH READ LOCK&lt;/code&gt; 会阻塞IO_THREAD提交数据&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;STOP SLAVE&lt;/code&gt;会等待IO_THREAD结束 (&lt;code&gt;mi-&amp;gt;stop_cond&lt;/code&gt;), 即&lt;code&gt;STOP SLAVE&lt;/code&gt;间接被&lt;code&gt;FLUSH TABLES WITH READ LOCK&lt;/code&gt;阻塞&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;STOP SLAVE&lt;/code&gt;在被阻塞前, 持有了&lt;code&gt;LOCK_active_mi&lt;/code&gt;, 独占了&lt;code&gt;master_info&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;&lt;code&gt;SHOW SLAVE STATUS&lt;/code&gt;会申请锁&lt;code&gt;LOCK_active_mi&lt;/code&gt;, 被&lt;code&gt;STOP SLAVE&lt;/code&gt;阻塞&lt;/li&gt;
-&lt;li&gt;如果&lt;code&gt;SHOW SLAVE STATUS&lt;/code&gt;是由之前&lt;code&gt;FLUSH TABLES WITH READ LOCK&lt;/code&gt;的&lt;code&gt;slave client 1&lt;/code&gt;发出的, 那逻辑上相当于自己在等待自己释放资源&lt;/li&gt;
-&lt;li&gt;从另外的client上&lt;code&gt;UNLOCK TABLES&lt;/code&gt;也解不开&lt;/li&gt;
-&lt;/ol&gt;
 </description>
     </item>
     
