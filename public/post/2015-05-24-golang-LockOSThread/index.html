@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en-us">
+<head>
+  <link href="http://gmpg.org/xfn/11" rel="profile">
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+
+  <title> golang 查询 /proc/self/exe 失败或 Setgroups() 失效 &middot; Tachikoma blog </title>
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/poole.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/syntax.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/hyde.css">
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/tachikoma.css">
+  <link rel="stylesheet" href="http://fonts.useso.com/css?family=PT+Sans:400,400italic,700|Abril+Fatface">
+
+  
+  <link rel="apple-touch-icon-precomposed" sizes="144x144" href="/apple-touch-icon-144-precomposed.png">
+  <link rel="shortcut icon" href="/favicon.ico">
+
+  
+  <link href="" rel="alternate" type="application/rss+xml" title="Tachikoma blog" />
+
+  
+  <link rel="stylesheet" href="http://ikarishinjieva.github.io/tachikoma-blog/css/highlight-rainbow.css">
+  <script src="http://ikarishinjieva.github.io/tachikoma-blog/highlight.pack.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script>
+</head>
+
+<body>
+
+<div style="position: fixed;bottom: 0px;right:0px;">
+<img src="http://ikarishinjieva.github.io/tachikoma-blog/tachikoma.gif" style="opacity:0.7; filter:alpha(opacity=70);"/>
+</div>
+<div class="sidebar">
+  <div class="container sidebar-sticky">
+    <div class="sidebar-about">
+      <h2 style="color:rgba(255,255,255,.5)">Tachikoma blog</h2>
+      <p class="lead">
+        <a href="mailto:tac.nil@outlook.com">Email</a> |
+        <a href="http://weibo.com/u/1460219211">Weibo</a> |
+        <a href="https://github.com/ikarishinjieva">Github</a>
+      </p>
+    </div>
+<hr>
+    <ul class="sidebar-nav">
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/">Home</a> </li>
+      <li><a href="http://ikarishinjieva.github.io/tachikoma-blog/tags">Tags</a> </li>
+      
+    </ul>
+
+  </div>
+</div>
+
+<script type="text/javascript">
+var _bdhmProtocol = (("https:" == document.location.protocol) ? " https://" : " http://");
+document.write(unescape("%3Cscript src='" + _bdhmProtocol + "hm.baidu.com/h.js%3F4c958230261b97d30128c952acd44fc6' type='text/javascript'%3E%3C/script%3E"));
+</script>
+
+
+<div class="content container">
+<div class="post">
+  <h1>golang 查询 /proc/self/exe 失败或 Setgroups() 失效</h1>
+  <span class="post-date">Sun, May 24, 2015      
+  	<ul style="float:right; " class="post-tags">
+      
+        <li><a href="tags/golang">golang</a> </li>
+      
+    </ul></span>
+      <p>前一段时间发生了些很奇怪的现象:</p>
+
+<ol>
+<li>在程序入口的第一句使用<code>Readlink(&quot;/proc/self/exe&quot;)</code>, 有小概率报出permission denied</li>
+<li>使用<code>Setgroups()</code>进行用户组设置, 但之后的操作中随机概率用户组设置会失效</li>
+</ol>
+
+<p>这两个问题困扰了蛮久, 第一个问题一直没找到描述问题的合适的关键字, 第二个问题没往系统的方向上想, 而是一直在检查程序逻辑的错误. <code>strace</code>和coredump也没有提供有用的信息.</p>
+
+<p>直到有一天晚上一位同事提醒我<code>man proc(5)</code>中有这样一段话:</p>
+
+<pre><code>In a multithreaded process, the contents of this symbolic link are not available if the main thread has already terminated (typically by calling pthread_exit(3)).
+</code></pre>
+
+<p>这就通了, 这两个问题都可能由于golang将执行块调度到了另外的线程上引起的.</p>
+
+<p>在uid/gid相关的man文档里, 相关的描述如下:</p>
+
+<pre><code>At the kernel level, user IDs and group IDs are a per-thread attribute.
+</code></pre>
+
+<p>解决方法是利用golang的<code>runtime.LockOSThread()</code>, 使用的形式参看<a href="https://code.google.com/p/go-wiki/wiki/LockOSThread">go-wiki</a>.</p>
+
+<p>还有一个<a href="https://github.com/golang/go/issues/1435">相关的issue</a>.</p>
+
+<p>一开始的思考方向偏了, 没找到正确的问题关键字, 着实浪费了一些时间.</p>
+
+</div>
+  <div id="disqus_thread" style="width:450px"></div>
+  <script type="text/javascript">
+       
+      var disqus_shortname = 'tacsay'; 
+
+       
+      (function() {
+          var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+          dsq.src = '//' + disqus_shortname + '.disqus.com/embed.js';
+          (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+      })();
+  </script>
+  <noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+  <a href="http://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+  
+</div>
+
+  </body>
+</html>
